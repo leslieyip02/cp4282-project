@@ -1,0 +1,32 @@
+# Shared NeRF-synthetic training defaults. Pass --data or set paths.data in a
+# run-specific copy of this YAML. The path below is only a placeholder.
+paths:
+  data: ../data
+  output: ../outputs/default.png
+  init_ply: null
+runtime:
+  arch: cpu
+  seed: 7
+model:
+  width: 256
+  height: 256
+  capacity: 100000
+  background: white
+training:
+  iterations: 8000
+learning_rates:
+  position_max_steps: 8000
+densification:
+  interval: 100
+  fraction: 0.2
+convergence:
+  enabled: false
+reporting:
+  eval_manifest: transforms_val.json
+  eval_views: 8
+  eval_every: 500
+  snapshot_every: 2000
+  save_ply: true
+experiment:
+  method: none
+  phase_switch_step: 2000

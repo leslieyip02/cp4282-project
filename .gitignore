@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+outputs/
+data/
+logs/*.out
+logs/*.err
+.DS_Store
+.python-version
