@@ -13,7 +13,7 @@ if [[ ! -f analyze_synthetic.py ]]; then
   echo "Submit this script from the cp4282-project root." >&2
   exit 1
 fi
-if [[ -f .venv/bin/activate ]]; then
+if [[ -z "${PYTHON_BIN:-}" && -f .venv/bin/activate ]]; then
   source .venv/bin/activate
 fi
 

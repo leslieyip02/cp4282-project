@@ -15,6 +15,7 @@ import warp as wp
 from image_filters import METHODS
 from image_metrics import ssim_rgb
 from prepared_targets import dataset_name, prepared_training_views
+from real_scene import RealScene
 
 gs = importlib.import_module("3dgs_trainer")
 
@@ -113,10 +114,13 @@ class ValidationReporter:
 
 
 def _test_evaluation(trainer, data: Path, width: int, height: int, background,
-                     run_dir: Path, training_summary):
-    targets, cameras, focal, _, frame_paths = gs.load_views(
-        data, width, height, background, manifest_name="transforms_test.json",
-    )
+                     run_dir: Path, training_summary, real_scene=None):
+    if real_scene is None:
+        targets, cameras, focal, _, frame_paths = gs.load_views(
+            data, width, height, background, manifest_name="transforms_test.json",
+        )
+    else:
+        targets, cameras, focal, _, frame_paths = real_scene.load_views("test", width, height)
     trainer.reconfigure_views(targets, cameras, focal)
     rows = []
     for view_id, frame_path in enumerate(frame_paths):
@@ -165,23 +169,18 @@ def run(args):
     switch = values["experiment"]["phase_switch_step"]
     data = (args.data or values["paths"]["data"]).resolve()
     scene = dataset_name(data, args.scene)
-    # TODO(real scenes): add a Mip-NeRF 360/COLMAP data adapter with per-view
-    # intrinsics and distortion handling for bonsai and counter.
-    # The dataset path is user-supplied; this runner still requires the
-    # NeRF-synthetic transforms/image format validated below.
+    real_scene = RealScene(data, values["reporting"]["eval_views"]) if (data / "nb-info.json").exists() else None
     init_ply = (
         args.init_ply
         or (values["paths"]["init_ply"] if args.data is None else None)
         or data / "init.ply"
     ).resolve()
-    if not init_ply.exists():
+    if not init_ply.exists() and real_scene is None:
         raise FileNotFoundError(f"Initial point cloud missing: {init_ply}")
-    validate_synthetic_scene(data)
+    if real_scene is None:
+        validate_synthetic_scene(data)
     run_dir = (args.output_root / scene / method / f"seed_{values['runtime']['seed']}").resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
-    values["paths"].update(data=data, init_ply=init_ply, output=run_dir / "final.png")
-    (run_dir / "run_config.json").write_text(json.dumps(config.printable(), indent=2) + "\n")
-
     wp.init()
     device = "cpu" if values["runtime"]["arch"] == "cpu" else "cuda:0"
     if device != "cpu" and not wp.is_cuda_available():
@@ -189,12 +188,26 @@ def run(args):
     model = values["model"]
     width, height = model["width"], model["height"]
     background = np.ones(3, np.float32) if model["background"] == "white" else np.zeros(3, np.float32)
-    training_targets, training_cameras, focal, distance, _ = gs.load_views(
-        data, width, height, background,
-    )
-    full_targets, full_cameras, eval_ids, heldout_ids = gs.resolve_evaluation_views(
-        training_targets, training_cameras, data, background, values["reporting"],
-    )
+    if real_scene is None:
+        training_targets, training_cameras, focal, distance, _ = gs.load_views(
+            data, width, height, background,
+        )
+        full_targets, full_cameras, eval_ids, heldout_ids = gs.resolve_evaluation_views(
+            training_targets, training_cameras, data, background, values["reporting"],
+        )
+    else:
+        training_targets, training_cameras, train_intrinsics, distance, _ = real_scene.load_views(
+            "train", width, height,
+        )
+        val_targets, val_cameras, val_intrinsics, _, _ = real_scene.load_views(
+            "val", width, height,
+        )
+        full_targets = np.concatenate((training_targets, val_targets))
+        full_cameras = np.concatenate((training_cameras, val_cameras))
+        focal = np.concatenate((train_intrinsics, val_intrinsics))
+        eval_ids = np.arange(len(training_targets), len(full_targets), dtype=np.int32)
+        heldout_ids = list(range(len(val_targets)))
+        values["reporting"]["eval_manifest"] = "reserved training views"
     full = (full_targets, full_cameras, focal)
     warm = full
     if method != "none" and switch > 0:
@@ -203,20 +216,42 @@ def run(args):
             args.cache_dir or args.output_root / "preprocessed",
         )
         if method == "downsample":
-            low_targets, low_cameras, low_ids, _ = gs.resolve_evaluation_views(
-                filtered, training_cameras, data, background, values["reporting"],
-            )
-            if not np.array_equal(low_ids - len(training_targets), eval_ids - len(training_targets)):
-                raise RuntimeError("Warm-up and full-resolution validation views differ")
-            warm = (low_targets, low_cameras, focal / 2.0)
+            if real_scene is None:
+                low_targets, low_cameras, low_ids, _ = gs.resolve_evaluation_views(
+                    filtered, training_cameras, data, background, values["reporting"],
+                )
+                if not np.array_equal(low_ids - len(training_targets), eval_ids - len(training_targets)):
+                    raise RuntimeError("Warm-up and full-resolution validation views differ")
+                warm = (low_targets, low_cameras, focal / 2.0)
+            else:
+                low_val, low_val_cameras, low_val_intrinsics, _, _ = real_scene.load_views(
+                    "val", width // 2, height // 2,
+                )
+                warm = (np.concatenate((filtered, low_val)),
+                        np.concatenate((training_cameras, low_val_cameras)),
+                        np.concatenate((train_intrinsics / 2.0, low_val_intrinsics)))
         else:
             warm = (np.concatenate((filtered, full_targets[len(training_targets):])),
                     full_cameras, focal)
-    initial = gs.GaussianSet.from_ply(init_ply)
+    if init_ply.exists():
+        initial = gs.GaussianSet.from_ply(init_ply)
+    else:
+        initial = real_scene.initial_gaussians(model["initial_splats"])
+        init_ply = run_dir / "colmap_init.ply"
+        initial.to_ply(init_ply)
+    values["paths"].update(data=data, init_ply=init_ply, output=run_dir / "final.png")
+    (run_dir / "run_config.json").write_text(json.dumps(config.printable(), indent=2) + "\n")
+    if real_scene is not None:
+        (run_dir / "split.json").write_text(json.dumps({
+            "train": real_scene.train_names, "validation": real_scene.validation_names,
+            "test": real_scene.test_names,
+        }, indent=2) + "\n")
     if len(initial.means) > model["capacity"]:
         raise ValueError("Initial point cloud exceeds model.capacity")
     trainer = gs.WarpImageTrainer(
-        *warm[:2], warm[2], model["scene_radius"] or distance * 0.35,
+        *warm[:2], warm[2], model["scene_radius"] or (
+            real_scene.scene_radius if real_scene is not None else distance * 0.35
+        ),
         model["capacity"], model["initial_splats"], device, values["runtime"]["seed"],
         init_scene=initial, background=background,
         learning_rates=values["learning_rates"],
@@ -233,14 +268,15 @@ def run(args):
         held_out_frame_ids=heldout_ids, phase_schedule=schedule,
         metric_reporter=reporter,
     )
-    _test_evaluation(trainer, data, width, height, background, run_dir, training_summary)
+    _test_evaluation(trainer, data, width, height, background, run_dir, training_summary,
+                     real_scene)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path(__file__).resolve().parent / "config/synthetic.yaml")
     parser.add_argument("--scene", help="Output label; defaults to the dataset directory name")
-    parser.add_argument("--data", type=Path, help="NeRF-synthetic scene directory; defaults to config paths.data")
+    parser.add_argument("--data", type=Path, help="NeRF-synthetic or Mip-NeRF 360 COLMAP scene directory")
     parser.add_argument("--init-ply", type=Path, help="Initial 3DGS PLY; defaults to scene/init.ply")
     parser.add_argument("--method", choices=METHODS)
     parser.add_argument("--phase-switch-step", type=int)

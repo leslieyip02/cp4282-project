@@ -1,4 +1,4 @@
-"""Prepare all six synthetic-scene warm-up target sets before training."""
+"""Prepare all six scene warm-up target sets before training."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import numpy as np
 
 from image_filters import METHODS
 from prepared_targets import dataset_name, prepared_training_views
+from real_scene import RealScene
 
 gs = importlib.import_module("3dgs_trainer")
 
@@ -31,7 +32,12 @@ def main():
     color = args.background or model["background"]
     scene = dataset_name(args.data, args.scene)
     background = np.ones(3, np.float32) if color == "white" else np.zeros(3, np.float32)
-    targets, _, _, _, _ = gs.load_views(args.data, width, height, background)
+    if (args.data / "nb-info.json").exists():
+        targets, _, _, _, _ = RealScene(args.data, config["reporting"]["eval_views"]).load_views(
+            "train", width, height,
+        )
+    else:
+        targets, _, _, _, _ = gs.load_views(args.data, width, height, background)
     for method in METHODS[1:]:
         prepared = prepared_training_views(targets, method, scene, args.cache_dir)
         print(f"{scene}/{method}: {prepared.shape}", flush=True)

@@ -18,7 +18,7 @@ def jobs():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data", type=Path, help="One NeRF-synthetic dataset directory")
+    parser.add_argument("--data", type=Path, help="One NeRF-synthetic or Mip-NeRF 360 scene directory")
     parser.add_argument("--name", help="Output label; defaults to the dataset directory name")
     parser.add_argument("--config", type=Path, default=ROOT / "config/synthetic.yaml")
     parser.add_argument("--index", type=int, help="Run this zero-based array task")

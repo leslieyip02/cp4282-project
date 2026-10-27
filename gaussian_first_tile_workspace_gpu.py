@@ -94,8 +94,8 @@ def project_tile_records(
                     covariance[0] / determinant,
                 )
                 centre = wp.vec2(
-                    focal * point[0] / z + 0.5 * float(width),
-                    focal * point[1] / z + 0.5 * float(height),
+                    camera[3, 0] * point[0] / z + camera[3, 2],
+                    camera[3, 1] * point[1] / z + camera[3, 3],
                 )
                 if (
                     wp.isfinite(centre[0])

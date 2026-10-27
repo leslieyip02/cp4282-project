@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=gs-one
 #SBATCH --gres=gpu:nv:1
+#SBATCH --constraint=xgpd|xgpf
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=08:00:00
@@ -14,7 +15,7 @@ if [[ ! -f synthetic_experiment.py ]]; then
   echo "Submit this script from the cp4282-project root." >&2
   exit 1
 fi
-if [[ -f .venv/bin/activate ]]; then
+if [[ -z "${PYTHON_BIN:-}" && -f .venv/bin/activate ]]; then
   source .venv/bin/activate
 fi
 
@@ -30,7 +31,15 @@ if [[ -n "${DATASET_NAME:-}" ]]; then
 fi
 
 python_bin="${PYTHON_BIN:-python}"
-"$python_bin" scripts/check_training_env.py
+echo "Compute node: $(hostname)"
+echo "SLURM_JOB_GPUS: ${SLURM_JOB_GPUS:-<unset>}"
+if command -v nvidia-smi >/dev/null 2>&1; then
+  nvidia-smi -L || true
+  nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || true
+else
+  echo "nvidia-smi is unavailable on this node."
+fi
+"$python_bin" scripts/check_training_env.py --gpu
 "$python_bin" synthetic_experiment.py \
   --config "$config" \
   --arch gpu \

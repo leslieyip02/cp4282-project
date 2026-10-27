@@ -1,4 +1,4 @@
-"""Train anisotropic 3D Gaussian splats from NeRF-synthetic posed images with Warp.
+"""Train anisotropic 3D Gaussian splats from posed images with Warp.
 
 Based on Assignment 2, with completed dense and sparse backward kernels. Check
 the dense kernel against central finite differences with:
@@ -14,7 +14,7 @@ kernels is wrong.
 Usage:
     python 3dgs_trainer.py config/3dgs_training_gpu.yaml
 
-The data directory contains transforms_train.json and its RGBA image files. Warp owns the
+The data directory contains NeRF-synthetic manifests or a Mip-NeRF 360 COLMAP scene. Warp owns the
 parallel raster, explicit backward pass, and Adam updates. Python owns image loading, camera
 selection, discrete tile records, densification, pruning, PLY snapshots, and validation.
 """
@@ -119,7 +119,7 @@ def projected_covariance_diagonal(
     quaternions: np.ndarray,
     camera: np.ndarray,
     camera_points: np.ndarray,
-    focal: float,
+    intrinsics: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return the x/y diagonal of each projected 2D covariance."""
     quaternions = quaternions / np.maximum(
@@ -127,8 +127,9 @@ def projected_covariance_diagonal(
     )
     rotation = quaternion_to_matrix(quaternions)
     x, y, z = camera_points.T
-    jacobian_x = np.stack((focal / z, np.zeros_like(z), -focal * x / (z * z)), axis=1)
-    jacobian_y = np.stack((np.zeros_like(z), focal / z, -focal * y / (z * z)), axis=1)
+    fx, fy = intrinsics[:2]
+    jacobian_x = np.stack((fx / z, np.zeros_like(z), -fx * x / (z * z)), axis=1)
+    jacobian_y = np.stack((np.zeros_like(z), fy / z, -fy * y / (z * z)), axis=1)
     projected_x = jacobian_x @ camera[:3, :3]
     projected_y = jacobian_y @ camera[:3, :3]
     local_x = np.einsum("ni,nij->nj", projected_x, rotation)
@@ -352,8 +353,10 @@ def projected_covariance(
     c0 = wp.vec3(camera[0, 0], camera[1, 0], camera[2, 0])
     c1 = wp.vec3(camera[0, 1], camera[1, 1], camera[2, 1])
     c2 = wp.vec3(camera[0, 2], camera[1, 2], camera[2, 2])
-    j0 = wp.vec3(focal / z, 0.0, -focal * x / (z * z))
-    j1 = wp.vec3(0.0, focal / z, -focal * y / (z * z))
+    fx = camera[3, 0]
+    fy = camera[3, 1]
+    j0 = wp.vec3(fx / z, 0.0, -fx * x / (z * z))
+    j1 = wp.vec3(0.0, fy / z, -fy * y / (z * z))
     p0 = wp.vec3(wp.dot(j0, c0), wp.dot(j0, c1), wp.dot(j0, c2))
     p1 = wp.vec3(wp.dot(j1, c0), wp.dot(j1, c1), wp.dot(j1, c2))
     b0 = wp.vec3(wp.dot(p0, r0), wp.dot(p0, r1), wp.dot(p0, r2))
@@ -403,8 +406,8 @@ def alpha_at_pixel(
     """
     point = camera * wp.vec4(mean[0], mean[1], mean[2], 1.0)
     z = wp.max(point[2], NEAR_PLANE)
-    centre_x = focal * point[0] / z + 0.5 * width
-    centre_y = focal * point[1] / z + 0.5 * height
+    centre_x = camera[3, 0] * point[0] / z + camera[3, 2]
+    centre_y = camera[3, 1] * point[1] / z + camera[3, 3]
     conic = conic_at_centre(log_scale, quaternion, camera, point[0], point[1], z, focal)
     dx, dy = px - centre_x, py - centre_y
     q = conic[0] * dx * dx + 2.0 * conic[1] * dx * dy + conic[2] * dy * dy
@@ -969,8 +972,9 @@ class WarpImageTrainer:
     def __init__(self, targets, cameras, focal, scene_radius, capacity, initial_splats,
                  device, seed, init_scene=None, background=(1.0, 1.0, 1.0),
                  learning_rates=None, tile_pair_capacity=None, training_options=None):
-        self.focal = float(focal)
         self.height, self.width = targets.shape[1], targets.shape[2]
+        self.intrinsics = self._normalise_intrinsics(focal, len(cameras))
+        self.focal = float(self.intrinsics[0, 0])
         self.capacity, self.device = capacity, wp.get_device(device)
         # Training always uses one randomly selected camera. Evaluation also renders one camera
         # at a time, so every image buffer can have a simple, fixed batch dimension of one.
@@ -1029,12 +1033,27 @@ class WarpImageTrainer:
             raise ValueError("targets and cameras must have the same view count")
         if targets.shape[1] < 1 or targets.shape[2] < 1:
             raise ValueError("view dimensions must be positive")
-        self.focal = float(focal)
         self.height, self.width = targets.shape[1:3]
+        self.intrinsics = self._normalise_intrinsics(focal, len(cameras))
+        self.focal = float(self.intrinsics[0, 0])
         self.tiles_x = (self.width + TILE - 1) // TILE
         self.tiles_y = (self.height + TILE - 1) // TILE
         self.tiles_per_view = self.tiles_x * self.tiles_y
         self._init_buffers(cameras, targets, self.capacity)
+
+    def _normalise_intrinsics(self, focal, view_count):
+        """Accept the old shared focal or one (fx, fy, cx, cy) row per view."""
+        values = np.asarray(focal, np.float32)
+        if values.ndim == 0:
+            values = np.tile(
+                [float(values), float(values), self.width / 2.0, self.height / 2.0],
+                (view_count, 1),
+            ).astype(np.float32)
+        if values.shape != (view_count, 4):
+            raise ValueError(f"intrinsics must have shape ({view_count}, 4)")
+        if not np.isfinite(values).all() or np.any(values[:, :2] <= 0):
+            raise ValueError("camera focal lengths must be finite and positive")
+        return values
 
     def _init_splats(self, capacity, initial_splats, init_scene, targets):
         """Allocate and populate every trainable per-splat parameter array."""
@@ -1068,7 +1087,11 @@ class WarpImageTrainer:
 
     def _init_buffers(self, cameras, targets, capacity):
         """Allocate camera/target uploads, the tile workspace, optimizers, and render buffers."""
-        self.cameras = wp.array(cameras, dtype=wp.mat44, device=self.device)
+        # The top three rows are the world-to-camera affine transform. The fourth row
+        # carries per-view pixel intrinsics; projection only uses the transformed xyz.
+        render_cameras = np.array(cameras, dtype=np.float32, copy=True)
+        render_cameras[:, 3, :] = self.intrinsics
+        self.cameras = wp.array(render_cameras, dtype=wp.mat44, device=self.device)
         self.targets = wp.array(targets.reshape(-1, 3), dtype=wp.vec3, device=self.device)
         # Ground truth never changes after upload, but `multiview_adc_scores` needs a few views of
         # it on the host at every densify/late-prune event. Keep one host-side copy rather than
@@ -1379,13 +1402,14 @@ class WarpImageTrainer:
             visible = (camera_points[:, 2] > NEAR_PLANE) & (support > 0.0)
             if not np.any(visible):
                 continue
+            intrinsic = self.intrinsics[int(view_id)]
             variance_x, variance_y = projected_covariance_diagonal(
                 scales[visible], quaternions[visible], camera, camera_points[visible, :3],
-                self.focal,
+                intrinsic,
             )
             centres = np.empty((int(np.count_nonzero(visible)), 2), np.float32)
-            centres[:, 0] = self.focal * camera_points[visible, 0] / camera_points[visible, 2] + 0.5 * self.width
-            centres[:, 1] = self.focal * camera_points[visible, 1] / camera_points[visible, 2] + 0.5 * self.height
+            centres[:, 0] = intrinsic[0] * camera_points[visible, 0] / camera_points[visible, 2] + intrinsic[2]
+            centres[:, 1] = intrinsic[1] * camera_points[visible, 1] / camera_points[visible, 2] + intrinsic[3]
             radius_scale = np.sqrt(support[visible])
             min_x = np.floor(centres[:, 0] - radius_scale * np.sqrt(np.maximum(variance_x, 0.0))).astype(np.int32)
             max_x = np.floor(centres[:, 0] + radius_scale * np.sqrt(np.maximum(variance_x, 0.0))).astype(np.int32)
@@ -1840,11 +1864,36 @@ def main() -> None:
         np.ones(3, np.float32) if model["background"] == "white"
         else np.zeros(3, np.float32)
     )
-    targets, cameras, focal, distance, _ = load_views(
-        paths["data"], model["width"], model["height"], background
+    real_scene = None
+    if (paths["data"] / "nb-info.json").exists():
+        from real_scene import RealScene
+
+        real_scene = RealScene(paths["data"], reporting["eval_views"])
+        targets, cameras, train_intrinsics, distance, _ = real_scene.load_views(
+            "train", model["width"], model["height"],
+        )
+        val_targets, val_cameras, val_intrinsics, _, _ = real_scene.load_views(
+            "val", model["width"], model["height"],
+        )
+        all_targets = np.concatenate((targets, val_targets))
+        all_cameras = np.concatenate((cameras, val_cameras))
+        focal = np.concatenate((train_intrinsics, val_intrinsics))
+        eval_view_ids = np.arange(len(targets), len(all_targets), dtype=np.int32)
+        held_out_frame_ids = list(range(len(val_targets)))
+        reporting["eval_manifest"] = "reserved training views"
+        initial = (GaussianSet.from_ply(paths["init_ply"]) if paths["init_ply"]
+                   else real_scene.initial_gaussians(model["initial_splats"]))
+    else:
+        targets, cameras, focal, distance, _ = load_views(
+            paths["data"], model["width"], model["height"], background
+        )
+        initial = GaussianSet.from_ply(paths["init_ply"]) if paths["init_ply"] else None
+        all_targets, all_cameras, eval_view_ids, held_out_frame_ids = resolve_evaluation_views(
+            targets, cameras, paths["data"], background, reporting,
+        )
+    scene_radius = model["scene_radius"] or (
+        real_scene.scene_radius if real_scene is not None else distance * 0.35
     )
-    scene_radius = model["scene_radius"] or distance * 0.35
-    initial = GaussianSet.from_ply(paths["init_ply"]) if paths["init_ply"] else None
     if initial is not None and len(initial.means) > model["capacity"]:
         parser.error(
             f"Checkpoint has {len(initial.means):,} splats, exceeding "
@@ -1854,9 +1903,6 @@ def main() -> None:
     # held-out evaluation views appended. The trainer indexes one view-id space, so it gets the
     # combined arrays; `run_training` gets the training-only ones and can therefore never draw a
     # held-out camera to optimise against.
-    all_targets, all_cameras, eval_view_ids, held_out_frame_ids = resolve_evaluation_views(
-        targets, cameras, paths["data"], background, reporting,
-    )
     trainer = WarpImageTrainer(
         all_targets, all_cameras, focal, scene_radius, model["capacity"],
         model["initial_splats"], device, runtime["seed"],

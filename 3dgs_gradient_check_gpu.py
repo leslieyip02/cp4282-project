@@ -208,10 +208,10 @@ def check_projected_tile_bounds(device: str) -> None:
     identity = np.array([[1.0, 0.0, 0.0, 0.0]], np.float32)
     quarter_turn = np.array([[np.sqrt(0.5), 0.0, 0.0, np.sqrt(0.5)]], np.float32)
     identity_x, identity_y = projected_covariance_diagonal(
-        scales, identity, camera, point, float(width)
+        scales, identity, camera, point, np.array([width, width, width / 2, width / 2])
     )
     rotated_x, rotated_y = projected_covariance_diagonal(
-        scales, quarter_turn, camera, point, float(width)
+        scales, quarter_turn, camera, point, np.array([width, width, width / 2, width / 2])
     )
     assert identity_x[0] > identity_y[0]
     assert rotated_y[0] > rotated_x[0]

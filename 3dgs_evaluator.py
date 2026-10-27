@@ -46,6 +46,7 @@ if str(_shared) not in sys.path:
 
 from image_metrics import ssim_rgb
 from gaussian_set import GaussianSet
+from real_scene import RealScene
 
 # The base trainer is `3dgs_trainer_v1` in the course repo and `3dgs_trainer` in the assignment
 # repo, where there is only one. Probing for both keeps this file identical in the two trees, the
@@ -115,14 +116,14 @@ def resolve_device(arch: str) -> str:
     return "cuda:0" if wp.is_cuda_available() else "cpu"
 
 
-def build_trainer(args, scene, targets, cameras, focal, distance, device):
+def build_trainer(args, scene, targets, cameras, focal, scene_radius, device):
     """The renderer, with spherical harmonics loaded when they apply. Returns (trainer, using_sh)."""
     capacity = len(scene.means)
     background = (
         np.ones(3, np.float32) if args.background == "white" else np.zeros(3, np.float32)
     )
     base = WarpImageTrainer(
-        targets, cameras, focal, distance * 0.35, capacity, capacity, device, 0,
+        targets, cameras, focal, scene_radius, capacity, capacity, device, 0,
         init_scene=scene, background=background,
         tile_pair_capacity=args.tile_pair_capacity,
     )
@@ -162,12 +163,24 @@ def build_trainer(args, scene, targets, cameras, focal, distance, device):
 def evaluate(args: argparse.Namespace) -> None:
     wp.init()
     device = resolve_device(args.arch)
-    width = args.width if args.width is not None else args.resolution
-    height = args.height if args.height is not None else args.resolution
-
     data = args.data.expanduser().resolve()
-    manifest_path = data / args.manifest
-    if not manifest_path.exists():
+    real_scene = RealScene(data) if (data / "nb-info.json").exists() else None
+    args.background = args.background or ("black" if real_scene is not None else "white")
+    if real_scene is None:
+        width = args.width if args.width is not None else args.resolution
+        height = args.height if args.height is not None else args.resolution
+    else:
+        original_width, original_height, _ = next(iter(real_scene.cameras.values()))
+        if args.width is None and args.height is not None:
+            height = args.height
+            width = 2 * round(height * original_width / original_height / 2)
+        else:
+            width = args.width or (2 * round(args.resolution / 2))
+            height = args.height or (2 * round(width * original_height / original_width / 2))
+    manifest_path = data / args.manifest if real_scene is None else data / (
+        "test_list.txt" if args.split == "test" else "train_list.txt"
+    )
+    if real_scene is None and not manifest_path.exists():
         raise FileNotFoundError(
             f"{manifest_path} does not exist. A NeRF-synthetic download that only fetched "
             "transforms_train.json has no held-out split; fetch the full dataset, or pass "
@@ -178,10 +191,16 @@ def evaluate(args: argparse.Namespace) -> None:
     background = (
         np.ones(3, np.float32) if args.background == "white" else np.zeros(3, np.float32)
     )
-    targets, cameras, focal, distance, frame_paths = load_views(
-        data, width, height, background, manifest_name=args.manifest
-    )
-    trainer, using_sh = build_trainer(args, scene, targets, cameras, focal, distance, device)
+    if real_scene is None:
+        targets, cameras, focal, distance, frame_paths = load_views(
+            data, width, height, background, manifest_name=args.manifest
+        )
+    else:
+        targets, cameras, focal, distance, frame_paths = real_scene.load_views(
+            args.split, width, height,
+        )
+    scene_radius = real_scene.scene_radius if real_scene is not None else distance * 0.35
+    trainer, using_sh = build_trainer(args, scene, targets, cameras, focal, scene_radius, device)
 
     wanted = list(dict.fromkeys(args.metrics))
     lpips_metric = LPIPSMetric(args.lpips_net) if "lpips" in wanted else None
@@ -251,8 +270,10 @@ def main() -> None:
     parser.add_argument("data", type=Path, help="Dataset directory, e.g. data/lego.")
     parser.add_argument(
         "--manifest", default="transforms_test.json",
-        help="Manifest inside the dataset directory. Default: the held-out test split.",
+        help="NeRF-synthetic manifest. Default: the held-out test split.",
     )
+    parser.add_argument("--split", choices=("train", "val", "test"), default="test",
+                        help="Mip-NeRF 360 split; default: test.")
     parser.add_argument(
         "--metrics", nargs="+", choices=METRICS, default=list(METRICS),
         metavar="METRIC", help=f"Any of: {', '.join(METRICS)}. Default: all three.",
@@ -268,7 +289,8 @@ def main() -> None:
     parser.add_argument("--resolution", type=int, default=DEFAULT_RESOLUTION)
     parser.add_argument("--width", type=int, default=None, help="Overrides --resolution.")
     parser.add_argument("--height", type=int, default=None, help="Overrides --resolution.")
-    parser.add_argument("--background", choices=("white", "black"), default="white")
+    parser.add_argument("--background", choices=("white", "black"),
+                        help="Default: black for COLMAP scenes, white for synthetic scenes.")
     parser.add_argument(
         "--sh-degree", type=int, choices=(0, 2), default=None,
         help="0 evaluates the PLY's own colour; 2 requires a spherical-harmonic sidecar. "
