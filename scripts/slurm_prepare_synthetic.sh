@@ -38,5 +38,6 @@ python_bin="${PYTHON_BIN:-python}"
 "$python_bin" prepare_synthetic.py \
   --data "$data_dir" \
   --config "$config" \
+  --init-seed "${INIT_SEED:-7}" \
   --cache-dir "$output_root/preprocessed" \
   "${name_arg[@]}"

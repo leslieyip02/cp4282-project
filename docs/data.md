@@ -49,6 +49,29 @@ Everything under `data/` is ignored by Git.
 ## NeRF-synthetic scenes
 
 A scene needs `transforms_train.json`, `transforms_val.json`, and
-`transforms_test.json`, their referenced images, and `init.ply` (or pass
-`--init-ply` when training). For example, the Assignment 2 Lego scene can be
-used with `--data ../cp4282-as2/data/lego`.
+`transforms_test.json` plus their referenced images. The NeRF-synthetic download
+does not need to contain `init.ply`: the synthetic preparation job generates it
+when missing, before preparing filtered targets. All 21 method/seed runs for a
+scene then read the same initialization. The initialization seed (default 7) is
+separate from the training seeds (7, 17, 27).
+
+Generate it explicitly from the repository root if you want to inspect or copy
+the scene before running preparation:
+
+```sh
+python generate_synthetic_init.py --data data/lego --seed 7 --points 50000
+```
+
+The generator samples positions uniformly in `[-1.3, 1.3]^3`, uses near-gray
+random colors, and writes the Gaussian properties required by this trainer.
+It writes the parameters to `init.json` beside `init.ply`. The default point
+count is 50,000, matching `model.initial_splats` in the shared training defaults;
+the preparation job uses the count from the selected config. Keep the count
+below `model.capacity` to allow densification. The generator refuses to replace
+an existing `init.ply` unless passed `--overwrite`; preparation always keeps an
+existing file. To choose another seed for a missing file in a Slurm preparation
+job, submit with `INIT_SEED=123 sbatch ...`.
+
+For an experiment comparing image filters, use one initialization per scene so
+all methods start from the same points. If replacing a previously supplied
+initialization, save it under another name first and generate a new `init.ply`.

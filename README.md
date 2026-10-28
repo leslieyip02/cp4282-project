@@ -42,8 +42,9 @@ cluster, from the repository root, install `requirements.txt` in its existing
      "$CLUSTER:$REMOTE_PROJECT/data/bonsai/"
    ```
 
-   For a synthetic Lego scene containing the three `transforms_*.json` files,
-   referenced images, and `init.ply`, copy its whole directory instead:
+   For a synthetic Lego scene containing the three `transforms_*.json` files
+   and referenced images, copy its whole directory. `init.ply` is optional:
+   the preparation job generates a seeded random initialization when missing.
 
    ```sh
    ssh "$CLUSTER" "mkdir -p $REMOTE_PROJECT/data"

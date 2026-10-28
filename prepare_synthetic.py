@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from image_filters import METHODS
+from generate_synthetic_init import DEFAULT_SEED, generate
 from prepared_targets import dataset_name, prepared_training_views
 from real_scene import RealScene
 
@@ -23,6 +24,8 @@ def main():
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--background", choices=("white", "black"))
+    parser.add_argument("--init-seed", type=int, default=DEFAULT_SEED,
+                        help="Seed for a missing synthetic init.ply; shared by all training runs")
     parser.add_argument("--cache-dir", type=Path, default=Path(__file__).resolve().parent / "outputs/preprocessed")
     args = parser.parse_args()
     config = gs.TrainingConfig.load(args.config)
@@ -37,6 +40,12 @@ def main():
             "train", width, height,
         )
     else:
+        init_path = args.data / "init.ply"
+        if not init_path.exists():
+            if model["initial_splats"] >= model["capacity"]:
+                parser.error("model.initial_splats must be below model.capacity for densification")
+            created = generate(args.data, seed=args.init_seed, points=model["initial_splats"])
+            print(f"Generated random initialization: {created}", flush=True)
         targets, _, _, _, _ = gs.load_views(args.data, width, height, background)
     for method in METHODS[1:]:
         prepared = prepared_training_views(targets, method, scene, args.cache_dir)
