@@ -1,20 +1,20 @@
-"""Run the controlled NeRF-synthetic filtering experiment."""
+"""Train and evaluate one screen-space splat kernel on a held-out scene."""
 
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
 import csv
 import importlib
 import json
 from pathlib import Path
+import statistics
+from time import perf_counter
 
 import numpy as np
 import warp as wp
 
-from image_filters import METHODS
 from image_metrics import ssim_rgb
-from prepared_targets import dataset_name, prepared_training_views
+from shared.kernels import NAMES
 from real_scene import RealScene
 
 gs = importlib.import_module("3dgs_trainer")
@@ -41,54 +41,13 @@ def validate_synthetic_scene(data: Path):
         seen |= current
 
 
-class PhaseSchedule:
-    """Own only the training target/resolution switch, never model state."""
-
-    def __init__(self, trainer, method, switch_step, warm, full):
-        self.trainer = trainer
-        self.method = method
-        self.switch_step = switch_step
-        self.warm = warm
-        self.full = full
-        self.in_warmup = method != "none" and switch_step > 0
-
-    def before_step(self, iteration):
-        if self.in_warmup and iteration == self.switch_step + 1:
-            optimizers = self.trainer.optimizers
-            trainable = self.trainer.trainable
-            adam_step = optimizers.quaternion_adam_t
-            self.trainer.reconfigure_views(*self.full)
-            if (self.trainer.optimizers is not optimizers
-                    or self.trainer.trainable is not trainable
-                    or optimizers.quaternion_adam_t != adam_step):
-                raise RuntimeError("Phase switch changed splat or optimizer state")
-            self.in_warmup = False
-            print(f"Step {iteration}: original-target refinement begins; Adam state preserved.", flush=True)
-
-    @contextmanager
-    def evaluation_context(self):
-        # Spatial filters do not alter held-out views or image dimensions.
-        if not self.in_warmup or self.method != "downsample":
-            yield
-            return
-        self.trainer.reconfigure_views(*self.full)
-        try:
-            yield
-        finally:
-            self.trainer.reconfigure_views(*self.warm)
-
-    def phase_at(self, iteration):
-        return "warmup" if self.method != "none" and iteration <= self.switch_step else "original"
-
-
 class ValidationReporter:
-    def __init__(self, path: Path, schedule: PhaseSchedule):
+    def __init__(self, path: Path):
         self.path = path
-        self.schedule = schedule
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("w", newline="") as stream:
             writer = csv.writer(stream)
-            writer.writerow(("iteration", "phase", "view_id", "psnr_db", "ssim", "elapsed_seconds", "gaussians"))
+            writer.writerow(("iteration", "view_id", "psnr_db", "ssim", "elapsed_seconds", "gaussians"))
 
     def __call__(self, iteration, trainer, view_ids, elapsed):
         values = []
@@ -103,13 +62,13 @@ class ValidationReporter:
                 ssim = ssim_rgb(prediction, trainer.targets_host[view_id])
                 values.append((float(psnr), float(ssim)))
                 losses.append(float(mse))
-                writer.writerow((iteration, self.schedule.phase_at(iteration), view_id,
+                writer.writerow((iteration, view_id,
                                  psnr, ssim, elapsed, int(trainer.active.sum())))
         # Preserve the first fixed view in the image buffer for the trainer's snapshot.
         trainer.render_single_view_image(int(view_ids[0]))
         mean = np.mean(values, axis=0)
         print(f"{iteration:6d}: validation PSNR={mean[0]:.2f} dB, SSIM={mean[1]:.4f} "
-              f"({self.schedule.phase_at(iteration)}, {len(values)} views)", flush=True)
+              f"({len(values)} views)", flush=True)
         return float(np.mean(losses))
 
 
@@ -123,19 +82,30 @@ def _test_evaluation(trainer, data: Path, width: int, height: int, background,
         targets, cameras, focal, _, frame_paths = real_scene.load_views("test", width, height)
     trainer.reconfigure_views(targets, cameras, focal)
     rows = []
+    if len(frame_paths):
+        trainer.render_single_view_image(0)  # compile/warm up outside timing
     for view_id, frame_path in enumerate(frame_paths):
-        prediction, mse = trainer.render_single_view_image(view_id)
+        timings = []
+        for _ in range(5):
+            started = perf_counter()
+            prediction, mse = trainer.render_single_view_image(view_id)
+            timings.append(perf_counter() - started)
+        render_seconds = statistics.median(timings)
         prediction = np.clip(prediction, 0.0, 1.0)
         rows.append((frame_path, -10.0 * np.log10(max(float(mse), 1e-12)),
-                     ssim_rgb(prediction, targets[view_id])))
+                     ssim_rgb(prediction, targets[view_id]), render_seconds,
+                     trainer.last_pair_count))
     with (run_dir / "test_metrics.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(("frame", "psnr_db", "ssim"))
+        writer.writerow(("frame", "psnr_db", "ssim", "render_seconds", "tile_pairs"))
         writer.writerows(rows)
     summary = {
         "views": len(rows),
         "mean_psnr_db": float(np.mean([row[1] for row in rows])),
         "mean_ssim": float(np.mean([row[2] for row in rows])),
+        "mean_render_seconds": float(np.mean([row[3] for row in rows])),
+        "mean_tile_pairs": float(np.mean([row[4] for row in rows])),
+        "kernel": trainer.kernel,
         "final_gaussians": int(trainer.active.sum()),
         **training_summary,
     }
@@ -148,9 +118,7 @@ def _test_evaluation(trainer, data: Path, width: int, height: int, background,
 def run(args):
     config = gs.TrainingConfig.load(args.config)
     values = config.values
-    values["experiment"]["method"] = args.method or values["experiment"]["method"]
-    if args.phase_switch_step is not None:
-        values["experiment"]["phase_switch_step"] = args.phase_switch_step
+    values["experiment"]["kernel"] = args.kernel or values["experiment"]["kernel"]
     if args.iterations is not None:
         values["training"]["iterations"] = args.iterations
     if args.seed is not None:
@@ -165,10 +133,9 @@ def run(args):
         values["model"]["height"] = args.height
     config.validate()
 
-    method = values["experiment"]["method"]
-    switch = values["experiment"]["phase_switch_step"]
+    kernel = values["experiment"]["kernel"]
     data = (args.data or values["paths"]["data"]).resolve()
-    scene = dataset_name(data, args.scene)
+    scene = args.scene or data.name
     real_scene = RealScene(data, values["reporting"]["eval_views"]) if (data / "nb-info.json").exists() else None
     init_ply = (
         args.init_ply
@@ -179,7 +146,8 @@ def run(args):
         raise FileNotFoundError(f"Initial point cloud missing: {init_ply}")
     if real_scene is None:
         validate_synthetic_scene(data)
-    run_dir = (args.output_root / scene / method / f"seed_{values['runtime']['seed']}").resolve()
+    run_dir = (args.output_root / "kernels" / scene / kernel /
+               f"seed_{values['runtime']['seed']}").resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
     wp.init()
     device = "cpu" if values["runtime"]["arch"] == "cpu" else "cuda:0"
@@ -208,31 +176,6 @@ def run(args):
         eval_ids = np.arange(len(training_targets), len(full_targets), dtype=np.int32)
         heldout_ids = list(range(len(val_targets)))
         values["reporting"]["eval_manifest"] = "reserved training views"
-    full = (full_targets, full_cameras, focal)
-    warm = full
-    if method != "none" and switch > 0:
-        filtered = prepared_training_views(
-            training_targets, method, scene,
-            args.cache_dir or args.output_root / "preprocessed",
-        )
-        if method == "downsample":
-            if real_scene is None:
-                low_targets, low_cameras, low_ids, _ = gs.resolve_evaluation_views(
-                    filtered, training_cameras, data, background, values["reporting"],
-                )
-                if not np.array_equal(low_ids - len(training_targets), eval_ids - len(training_targets)):
-                    raise RuntimeError("Warm-up and full-resolution validation views differ")
-                warm = (low_targets, low_cameras, focal / 2.0)
-            else:
-                low_val, low_val_cameras, low_val_intrinsics, _, _ = real_scene.load_views(
-                    "val", width // 2, height // 2,
-                )
-                warm = (np.concatenate((filtered, low_val)),
-                        np.concatenate((training_cameras, low_val_cameras)),
-                        np.concatenate((train_intrinsics / 2.0, low_val_intrinsics)))
-        else:
-            warm = (np.concatenate((filtered, full_targets[len(training_targets):])),
-                    full_cameras, focal)
     if init_ply.exists():
         initial = gs.GaussianSet.from_ply(init_ply)
     else:
@@ -249,7 +192,7 @@ def run(args):
     if len(initial.means) > model["capacity"]:
         raise ValueError("Initial point cloud exceeds model.capacity")
     trainer = gs.WarpImageTrainer(
-        *warm[:2], warm[2], model["scene_radius"] or (
+        full_targets, full_cameras, focal, model["scene_radius"] or (
             real_scene.scene_radius if real_scene is not None else distance * 0.35
         ),
         model["capacity"], model["initial_splats"], device, values["runtime"]["seed"],
@@ -257,15 +200,15 @@ def run(args):
         learning_rates=values["learning_rates"],
         tile_pair_capacity=model["tile_pair_capacity"],
         training_options={key: values[key] for key in ("compact_box", "multiview_adc", "sparse")},
+        kernel=kernel,
     )
-    schedule = PhaseSchedule(trainer, method, switch, warm, full)
-    reporter = ValidationReporter(run_dir / "validation_metrics.csv", schedule)
+    reporter = ValidationReporter(run_dir / "validation_metrics.csv")
     (run_dir / "snapshots").mkdir(exist_ok=True)
     training_summary = gs.run_training(
         trainer, config, training_targets, eval_ids,
         run_dir / "snapshots", run_dir / "final.png",
-        description=f"{scene}/{method}/seed_{values['runtime']['seed']}",
-        held_out_frame_ids=heldout_ids, phase_schedule=schedule,
+        description=f"{scene}/{kernel}/seed_{values['runtime']['seed']}",
+        held_out_frame_ids=heldout_ids,
         metric_reporter=reporter,
     )
     _test_evaluation(trainer, data, width, height, background, run_dir, training_summary,
@@ -278,8 +221,7 @@ def main():
     parser.add_argument("--scene", help="Output label; defaults to the dataset directory name")
     parser.add_argument("--data", type=Path, help="NeRF-synthetic or Mip-NeRF 360 COLMAP scene directory")
     parser.add_argument("--init-ply", type=Path, help="Initial 3DGS PLY; defaults to scene/init.ply")
-    parser.add_argument("--method", choices=METHODS)
-    parser.add_argument("--phase-switch-step", type=int)
+    parser.add_argument("--kernel", choices=NAMES)
     parser.add_argument("--iterations", type=int)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--arch", choices=("cpu", "gpu"))
@@ -287,7 +229,6 @@ def main():
     parser.add_argument("--height", type=int)
     parser.add_argument("--eval-every", type=int)
     parser.add_argument("--output-root", type=Path, default=Path(__file__).resolve().parent / "outputs")
-    parser.add_argument("--cache-dir", type=Path, help="Prepared target copies; defaults to output-root/preprocessed")
     run(parser.parse_args())
 
 

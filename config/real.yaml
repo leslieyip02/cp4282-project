@@ -26,5 +26,4 @@ reporting:
   snapshot_every: 2000
   save_ply: true
 experiment:
-  method: none
-  phase_switch_step: 2000
+  kernel: gaussian

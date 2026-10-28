@@ -56,13 +56,15 @@ def one_splat_scene() -> GaussianSet:
     )
 
 
-def make_trainer(width: int, target: np.ndarray, background, device: str) -> WarpImageTrainer:
+def make_trainer(width: int, target: np.ndarray, background, device: str,
+                 kernel: str = "gaussian") -> WarpImageTrainer:
     targets = np.broadcast_to(target, (1, width, width, 3)).copy().astype(np.float32)
     cameras = np.eye(4, dtype=np.float32)[None]
     trainer = WarpImageTrainer(
         targets, cameras, float(width), 1.0, 1, 1, device, 7,
         init_scene=one_splat_scene(), background=background,
         training_options=DENSE_ONLY,
+        kernel=kernel,
     )
     return trainer
 
@@ -81,8 +83,8 @@ def finite_difference(trainer, field, dtype, index, epsilon=2.0e-3) -> float:
     return (loss_plus - loss_minus) / (2.0 * epsilon)
 
 
-def check_parameter_gradients(device: str) -> None:
-    trainer = make_trainer(4, np.array([0.20, 0.30, 0.40]), (1.0, 1.0, 1.0), device)
+def check_parameter_gradients(device: str, kernel: str = "gaussian") -> None:
+    trainer = make_trainer(4, np.array([0.20, 0.30, 0.40]), (1.0, 1.0, 1.0), device, kernel)
     trainer.loss_and_gradients(np.array([0]))
     analytic = {
         "mean x": float(trainer.optimizers.mean_grad.numpy()[0, 0]),
@@ -247,6 +249,7 @@ def main() -> None:
     if args.device.startswith("cuda") and not wp.is_cuda_available():
         raise RuntimeError(f"{args.device} requested, but Warp cannot access a CUDA driver.")
     check_parameter_gradients(args.device)
+    check_parameter_gradients(args.device, "linear")
     check_background_and_gradient_reset(args.device)
     check_gpu_tile_depth_order(args.device)
     check_compact_box_reduces_pairs(args.device)

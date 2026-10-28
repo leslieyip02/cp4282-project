@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=gs-filter
-#SBATCH --array=0-20%4
+#SBATCH --job-name=gs-kernel
+#SBATCH --array=0-5%4
 #SBATCH --gres=gpu:nv:1
 #SBATCH --constraint=xgpd|xgpf
 #SBATCH --cpus-per-task=4
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 cd "${SLURM_SUBMIT_DIR:?Submit from the project root}"
-if [[ ! -f synthetic_experiment.py ]]; then
+if [[ ! -f kernel_experiment.py ]]; then
   echo "Submit this script from the cp4282-project root." >&2
   exit 1
 fi
@@ -51,7 +51,7 @@ else
   echo "nvidia-smi is unavailable on this node."
 fi
 "$python_bin" scripts/check_training_env.py --gpu
-"$python_bin" scripts/run_synthetic_matrix.py \
+"$python_bin" scripts/run_kernel_matrix.py \
   --data "$data_dir" \
   --config "$config" \
   --index "$index" \

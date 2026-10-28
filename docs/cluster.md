@@ -21,13 +21,13 @@ sacct -j JOB_ID --format=JobID,NodeList,State,ExitCode
 sbatch --exclude=BAD_NODE --array=INDEX_LIST scripts/slurm_train_real.sh data/bonsai
 ```
 
-After an array finishes, inspect `outputs/analysis/missing_jobs.csv`. Match
-its method/seed rows with the matrix listing, then resubmit only those array
+After an array finishes, inspect `outputs/kernel_analysis/missing_jobs.csv`. Match
+its kernel/seed rows with the matrix listing, then resubmit only those array
 indices using the real or synthetic training script. Run analysis again after
 the retries. The baseline pilot is index 0:
 
 ```sh
-.venv/bin/python scripts/run_synthetic_matrix.py --list
+.venv/bin/python scripts/run_kernel_matrix.py --list
 sbatch --array=0 scripts/slurm_train_real.sh data/bonsai
 ```
 
@@ -36,10 +36,10 @@ For a synthetic scene, select `config/synthetic.yaml` and
 directory must contain the three transforms manifests, their images, and
 `init.ply`. To analyze several scenes together, wait for every training array
 and run the analysis script without `--scenes`; it discovers all scenes under
-`outputs/`. A per-scene analysis writes to the same `outputs/analysis/` CSVs,
+`outputs/kernels/`. A per-scene analysis writes to the same `outputs/kernel_analysis/` CSVs,
 so save those results before analyzing another scene separately.
 
-Pass a modified YAML as the second argument to the preparation and training
-scripts. Set `OUTPUT_ROOT` to move outputs and prepared targets together, or
+Pass a modified YAML as the second argument to the training scripts.
+Set `OUTPUT_ROOT` to move outputs, or
 `DATASET_NAME` when two dataset directories have the same final name. The
 scripts accept `PYTHON_BIN` to use a different existing interpreter.

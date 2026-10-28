@@ -1,43 +1,83 @@
-# Experiment and outputs
+# Kernel-shape experiment
 
-The question is whether filtering posed training images early in 3D Gaussian
-splatting improves reconstruction quality on unfiltered novel views. The seven
-methods are `none`, `downsample`, `mean`, `gaussian`, `bilateral`, `kuwahara`, and
-`unsharp`.
+## Question and scope
 
-Each dataset runs all seven methods with seeds 7, 17, and 27. Methods use the
-same training views and a separate seeded training-camera sequence. Validation
-and test images are never filtered. The default run trains for 8,000 steps;
-filtered targets are used through step 2,000, followed by original targets.
-`none` uses original targets throughout. Downsampling halves the warm-up image
-size and intrinsics, then returns to full resolution. The phase switch keeps
-the current Gaussians and optimizer state.
+Under a fixed splat-capacity and training-step budget, how does the projected
+screen-space kernel affect held-out reconstruction quality and rendering cost?
+This changes the alpha footprint of projected 3D ellipsoids. Their 3D geometry,
+projection, color model, and front-to-back compositing remain the same. It is a
+screen-space kernel study, not a claim to replace the 3D primitive itself.
 
-Use `config/real.yaml` or `config/synthetic.yaml` to change shared settings.
-For a one-off run, pass `--method`, `--seed`, `--iterations`, or
-`--phase-switch-step` to `synthetic_experiment.py`. The runner handles both
-dataset formats despite its name. `scripts/run_synthetic_matrix.py --list`
-shows the Slurm array index for each method and seed.
+The implemented comparison is `gaussian` versus `linear`. A smooth polynomial
+kernel is a possible later extension and is not included in this run matrix.
+The Gaussian weight is `exp(-q/2)`. The linear radial weight is
+`max(0, 1 - sqrt(q / (8 ln 2)))`, with `q` the squared Mahalanobis distance in
+the projected ellipse. Both weights equal 1/2 at `q = 2 ln 2`. This matches the
+half-maximum radius, while leaving the total mass and support different; those
+differences are part of what the experiment measures. The linear kernel has
+finite support at `q = 8 ln 2`. The existing alpha threshold and compact-box
+setting can trim a faint splat before its half-maximum radius; training, tile
+culling, ADC, and evaluation
+use the same kernel-specific support rule. No image filtering or phase switch
+is used.
 
-Preparation caches filtered training arrays in `outputs/preprocessed/` for
-reuse across seeds. Each training run writes to
-`outputs/<scene>/<method>/seed_<seed>/`, including `run_config.json`,
-`validation_metrics.csv`, `test_metrics.csv`, `test_summary.json`, the final
-PLY, and snapshots. Real-scene runs also write `split.json`.
+## Implementation and verification
 
-`analyze_synthetic.py` reads completed runs and writes four CSVs in
-`outputs/analysis/`:
+- `experiment.kernel` in the YAML selects `gaussian` or `linear` and is saved
+  in every run's `run_config.json`.
+- `3dgs_trainer.py` evaluates the kernel in dense and sparse forward/backward
+  paths. `gaussian_first_tile_workspace_gpu.py` uses its support for tiling;
+  the multi-view ADC scorer uses the matching CPU support estimate.
+- `3dgs_evaluator.py` reads the saved run config when evaluating a final or
+  snapshot PLY; `--kernel` can override it for an external PLY.
+- Run `WARP_CACHE_PATH=/tmp/warp-cache .venv/bin/python
+  3dgs_gradient_check_gpu.py --device cpu` before cluster runs. It checks
+  finite-difference gradients for both kernels and the existing tiling checks.
+  Run the same check on CUDA in the cluster environment.
 
-- `paired_runs.csv`: each run's test PSNR and SSIM, change from its matched
-  `none` baseline, training time, and final Gaussian count.
-- `method_summary.csv`: per-scene, per-method means across paired seeds.
-- `validation_curves.csv`: sampled validation metrics and elapsed time.
-- `missing_jobs.csv`: runs that are absent or incomplete.
+A PLY does not encode the kernel. Keep it with its `run_config.json`, or pass
+`--kernel` explicitly to the evaluator. The measured render time is the median
+of five end-to-end single-view renders plus readback, after one warm-up render; tile
+pairs count projected splat/tile records, not exact splat/pixel evaluations.
 
-Analysis is complete when `missing_jobs.csv` contains only its header and the
-expected 21 runs per scene have finished. To evaluate a bonsai PLY separately:
+## Experimental procedure
 
-```sh
-.venv/bin/python 3dgs_evaluator.py outputs/bonsai/none/seed_7/final.ply \
-  data/bonsai --width 390 --height 260 --arch gpu --metrics psnr ssim
-```
+1. **Pilot:** Run both kernels on one synthetic scene and one real scene with
+   seed 7. Inspect renders, gradients, splat count, tile pairs, and timing.
+   Resolve numerical or culling errors before the full matrix.
+2. **Main matrix:** Run both kernels on Lego, Materials, Ship, Bonsai, and
+   Counter, with seeds 7, 17, 27: 30 runs. Generate one `init.ply` per
+   synthetic scene and reuse it across kernels and seeds. Real scenes use the
+   same COLMAP initialization for matched runs. Hold image resolution, camera
+   splits, optimizer, densification, 8,000 training steps, and the 100,000
+   splat cap fixed within each scene. The cap is a budget, not a guarantee of
+   equal actual splat counts.
+3. **Metrics:** Use the final 8,000-step checkpoint for the primary comparison.
+   Evaluate only on held-out test views. Record mean PSNR and SSIM, splat count,
+   training time, mean test-view render time, and tile pairs. Validation curves
+   and saved snapshots diagnose convergence. If a validation-selected
+   checkpoint becomes the primary endpoint, implement and predeclare that
+   selection rule before examining test results.
+4. **Analysis:** Pair the linear and Gaussian runs by scene and seed. Report
+   paired PSNR/SSIM deltas and per-scene 95% confidence intervals. Treat the
+   scene, rather than the individual view, as the unit for claims across
+   scenes. Avoid interpreting a confidence interval crossing zero as proof of
+   equivalence. Report both quality at equal steps and quality versus render
+   time, since the kernels may perform different amounts of work.
+
+Run `scripts/run_kernel_matrix.py --list` for array indices. Outputs are in
+`outputs/kernels/<scene>/<kernel>/seed_<seed>/`. `analyze_kernels.py` writes
+`outputs/kernel_analysis/{paired_runs,kernel_summary,validation_curves,missing_jobs}.csv`.
+Historical filter results in `outputs/analysis/` remain separate.
+
+## Final presentation
+
+- A scene-by-kernel table of test PSNR, SSIM, splat count, render time,
+  training time, and tile pairs.
+- A paired-delta plot with one point per scene/seed and per-scene uncertainty.
+- A quality-versus-render-time plot and validation curves.
+- Matched image crops of edges and thin structures, with references and both
+  kernel outputs.
+- A concise conclusion scoped to these scenes, resolution, kernel definitions,
+  cap, and training budget. Published linear-kernel work is prior art, so this
+  is a controlled comparison in this renderer.

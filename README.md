@@ -1,135 +1,64 @@
-# Image filtering during 3D Gaussian splatting training
+# Screen-space kernels for 3D Gaussian splatting
 
-This project asks whether filtering training images early in 3D Gaussian
-splatting improves reconstruction on **unfiltered novel views**. It compares
-seven target-image methods on NeRF-synthetic and Mip-NeRF 360 scenes. Each
-method uses the same posed views and seeded camera sequence; PSNR and SSIM are
-measured on held-out images.
+This project compares Gaussian and linear radial splat footprints under the
+same projected 3D ellipsoids and training budget. It measures held-out PSNR and
+SSIM, training time, rendering time, splat count, and tile work. The full
+methodology is in [docs/experiment.md](docs/experiment.md).
 
-## Cluster playbook
+## Local setup
 
-The same five steps work for a Mip-NeRF 360 scene such as bonsai and a
-NeRF-synthetic scene such as Lego. The examples assume local `data/bonsai/` or
-`data/lego/` and a copy of this repository at `~/cp4282/cp4282-project` on
-the SoC cluster. See [dataset layout](docs/data.md) before copying a scene.
-Replace `your_soc_id` and `REMOTE_PROJECT` if needed. Run steps 1 and 5
-locally; run steps 2–4 on the cluster.
-
-Before transferring data, sync the project code to the cluster. On the
-cluster, from the repository root, install `requirements.txt` in its existing
-`.venv` if needed and check imports:
+Install `requirements.txt` into `.venv`, then check the renderer:
 
 ```sh
-.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python scripts/check_training_env.py
+WARP_CACHE_PATH=/tmp/warp-cache .venv/bin/python 3dgs_gradient_check_gpu.py --device cpu
 ```
 
-1. **Copy training data to the cluster.** Set the destination from the local
-   repository root:
+A NeRF-synthetic scene needs its train/val/test manifests and images. Generate
+one shared initialization if `init.ply` is missing:
 
-   ```sh
-   CLUSTER=your_soc_id@xlogin.comp.nus.edu.sg
-   REMOTE_PROJECT=cp4282/cp4282-project
-   ```
+```sh
+.venv/bin/python generate_synthetic_init.py --data data/lego --seed 7 --points 50000
+```
 
-   For bonsai, copy the scene files but omit the optional reference checkpoint
-   and predictions:
+A Mip-NeRF 360 scene uses its COLMAP points; see [docs/data.md](docs/data.md).
 
-   ```sh
-   ssh "$CLUSTER" "mkdir -p $REMOTE_PROJECT/data/bonsai"
-   scp -r data/bonsai/nb-info.json data/bonsai/train_list.txt \
-     data/bonsai/test_list.txt data/bonsai/images_2 data/bonsai/sparse_2 \
-     "$CLUSTER:$REMOTE_PROJECT/data/bonsai/"
-   ```
+## Run the comparison
 
-   For a synthetic Lego scene containing the three `transforms_*.json` files
-   and referenced images, copy its whole directory. `init.ply` is optional:
-   the preparation job generates a seeded random initialization when missing.
+List the six array indices for one scene:
 
-   ```sh
-   ssh "$CLUSTER" "mkdir -p $REMOTE_PROJECT/data"
-   scp -r data/lego "$CLUSTER:$REMOTE_PROJECT/data/"
-   ```
+```sh
+.venv/bin/python scripts/run_kernel_matrix.py --list
+```
 
-2. **Prepare filtered training targets.** Connect with `ssh "$CLUSTER"` and
-   keep that session open while queuing steps 2–4 so the job ID variables
-   remain available. From the cluster repository root, choose **one** scene:
+Run a one-seed pilot on a CUDA machine (substitute `data/bonsai` and
+`config/real.yaml` for a real scene):
 
-   ```sh
-   # Bonsai
-   SCENE=bonsai
-   DATA_DIR=data/bonsai
-   CONFIG=config/real.yaml
-   TRAIN_SCRIPT=scripts/slurm_train_real.sh
-   ```
+```sh
+.venv/bin/python kernel_experiment.py --data data/lego --config config/synthetic.yaml \
+  --kernel gaussian --seed 7 --arch gpu
+.venv/bin/python kernel_experiment.py --data data/lego --config config/synthetic.yaml \
+  --kernel linear --seed 7 --arch gpu
+.venv/bin/python analyze_kernels.py --scenes lego --seeds 7
+```
 
-   ```sh
-   # Synthetic Lego
-   SCENE=lego
-   DATA_DIR=data/lego
-   CONFIG=config/synthetic.yaml
-   TRAIN_SCRIPT=scripts/slurm_train_synthetic.sh
-   ```
+On the cluster, submit each scene's six-task GPU array after the project code
+and dataset are present. Create `logs/` before submitting:
 
-   Then create `logs/` and submit the CPU preparation job:
+```sh
+mkdir -p logs
+sbatch scripts/slurm_train_synthetic.sh data/lego config/synthetic.yaml
+sbatch scripts/slurm_train_real.sh data/bonsai config/real.yaml
+```
 
-   ```sh
-   cd ~/cp4282/cp4282-project
-   mkdir -p logs
-   prep_job=$(sbatch --parsable scripts/slurm_prepare_synthetic.sh "$DATA_DIR" "$CONFIG")
-   ```
+After all arrays finish, run:
 
-3. **Train all methods and seeds.** This queues the 21-task GPU array only if
-   preparation succeeds. The training script checks CUDA inside each job.
+```sh
+sbatch scripts/slurm_analyze_kernels.sh
+cat outputs/kernel_analysis/missing_jobs.csv
+```
 
-   ```sh
-   train_job=$(sbatch --parsable --dependency="afterok:$prep_job" \
-     "$TRAIN_SCRIPT" "$DATA_DIR" "$CONFIG")
-   ```
-
-4. **Analyze completed runs.** This CPU job starts after the entire training
-   array ends, including if some tasks failed. Check `missing_jobs.csv` before
-   treating the results as complete.
-
-   ```sh
-   analysis_job=$(sbatch --parsable --dependency="afterany:$train_job" \
-     scripts/slurm_analyze_synthetic.sh --scenes "$SCENE")
-   printf 'prep=%s train=%s analysis=%s\n' "$prep_job" "$train_job" "$analysis_job"
-   ```
-
-   After the analysis job finishes:
-
-   ```sh
-   sacct -j "$analysis_job" --format=JobID,State,ExitCode
-   cat outputs/analysis/missing_jobs.csv
-   ```
-
-   If the CSV has rows beyond its header, rerun those method/seed tasks and
-   run analysis again. See [cluster notes](docs/cluster.md) for array indices,
-   node diagnostics, and retries. For combined bonsai and Lego results, wait
-   for both arrays and run analysis without `--scenes`; a second per-scene
-   analysis would replace the first set of CSVs.
-
-5. **Copy the analysis CSVs back to the local machine** once the analysis job
-   has finished and `missing_jobs.csv` is clear.
-
-   ```sh
-   CLUSTER=your_soc_id@xlogin.comp.nus.edu.sg
-   REMOTE_PROJECT=cp4282/cp4282-project
-   mkdir -p outputs
-   scp -r "$CLUSTER:$REMOTE_PROJECT/outputs/analysis" outputs/
-   ```
-
-Results are under `outputs/<scene>/<method>/seed_<seed>/` on the cluster;
-`outputs/analysis/` contains paired runs, method summaries, validation curves,
-and the missing-job report. If you need final PLYs or images locally, copy the
-corresponding run directories as well.
-
-## Further reading
-
-- [Datasets](docs/data.md): bonsai download, expected files, optional reference
-  bundle, and synthetic-scene layout.
-- [Experiment and outputs](docs/experiment.md): methods, phase switch,
-  evaluation, and result files.
-- [Cluster notes](docs/cluster.md): Slurm options, GPU checks, retries, and
-  synthetic-scene jobs.
+Results are stored under `outputs/kernels/<scene>/<kernel>/seed_<seed>/`.
+Historical filter outputs in `outputs/analysis/` are retained as prior data
+and are not read by the kernel analysis. See [docs/cluster.md](docs/cluster.md)
+for Slurm retries and environment checks.

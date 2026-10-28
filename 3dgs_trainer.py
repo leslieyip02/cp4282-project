@@ -22,7 +22,6 @@ selection, discrete tile records, densification, pruning, PLY snapshots, and val
 from __future__ import annotations
 
 import argparse
-from contextlib import nullcontext
 from copy import deepcopy
 import importlib
 import json
@@ -55,6 +54,7 @@ from splat_math import (
     TRANSMITTANCE_CUTOFF,
     quaternion_to_matrix,
 )
+from kernels import GAUSSIAN, LINEAR, LINEAR_RADIUS_SQUARED, kernel_id, support_radius_squared
 # Bound here as well as imported: the later trainers and the evaluation scripts reach these
 # through this module, and moving them out from under those names would be a change to every
 # caller rather than to where the code lives.
@@ -380,6 +380,26 @@ def conic_at_centre(log_scale: wp.vec3, quaternion: wp.vec4, camera: wp.mat44, x
 
 
 @wp.func
+def kernel_support(opacity: float, kernel_kind: int, compact_enabled: int,
+                   compact_beta: float, compact_alpha_min: float):
+    natural = float(SUPPORT_RADIUS_SQUARED)
+    if kernel_kind == LINEAR:
+        natural = float(LINEAR_RADIUS_SQUARED)
+    if compact_enabled == 0:
+        return natural
+    threshold = wp.max(compact_alpha_min, float(ALPHA_CUTOFF))
+    support = float(0.0)
+    if opacity > threshold:
+        ratio = threshold / opacity
+        if kernel_kind == LINEAR:
+            edge = 1.0 - wp.pow(ratio, compact_beta)
+            support = natural * edge * edge
+        else:
+            support = wp.min(natural, compact_beta * 2.0 * wp.log(opacity / threshold))
+    return support
+
+
+@wp.func
 def alpha_at_pixel(
     mean: wp.vec3,
     log_scale: wp.vec3,
@@ -394,15 +414,15 @@ def alpha_at_pixel(
     compact_enabled: int,
     compact_beta: float,
     compact_alpha_min: float,
+    kernel_kind: int,
 ):
     """Alpha of one splat at one pixel.
 
-    The cutoff is the splat's own compact-support radius, not a fixed 3-sigma disc: a faint splat
-    is truncated sooner because it reaches ALPHA_CUTOFF sooner. This is the same rule the tile
-    workspace already uses to decide which tiles a splat touches, and the same rule the validation
-    rasterizer shades with, so training, tiling, and validation now agree. Passing the compact-box
-    settings in (rather than reading a module constant) keeps `compact_box.enabled: false` working,
-    where the cutoff falls back to the fixed SUPPORT_RADIUS_SQUARED disc.
+    The selected kernel determines both the pixel weight and its support.
+    Faint splats can be truncated sooner by the compact-box rule. The tile
+    workspace and validation renderer use the same support. With compact boxes
+    disabled, Gaussian uses the fixed q=9 disc and linear its natural finite
+    support.
     """
     point = camera * wp.vec4(mean[0], mean[1], mean[2], 1.0)
     z = wp.max(point[2], NEAR_PLANE)
@@ -412,17 +432,14 @@ def alpha_at_pixel(
     dx, dy = px - centre_x, py - centre_y
     q = conic[0] * dx * dx + 2.0 * conic[1] * dx * dy + conic[2] * dy * dy
     opacity = 1.0 / (1.0 + wp.exp(-opacity_logit))
-    support = float(SUPPORT_RADIUS_SQUARED)
-    if compact_enabled != 0:
-        support = 0.0
-        if opacity > compact_alpha_min:
-            support = wp.min(
-                float(SUPPORT_RADIUS_SQUARED),
-                compact_beta * 2.0 * wp.log(opacity / compact_alpha_min),
-            )
+    support = kernel_support(opacity, kernel_kind, compact_enabled,
+                             compact_beta, compact_alpha_min)
     alpha = float(0.0)
     if support > 0.0 and q <= support:
-        candidate = wp.min(opacity * wp.exp(-0.5 * q), 0.99)
+        weight = wp.exp(-0.5 * q)
+        if kernel_kind == LINEAR:
+            weight = wp.max(0.0, 1.0 - wp.sqrt(wp.max(q, 1.0e-12) / float(LINEAR_RADIUS_SQUARED)))
+        candidate = wp.min(opacity * weight, 0.99)
         if candidate >= ALPHA_CUTOFF:
             alpha = candidate
     return alpha
@@ -462,6 +479,7 @@ def render_forward(
     compact_enabled: int,
     compact_beta: float,
     compact_alpha_min: float,
+    kernel_kind: int,
     image: wp.array(dtype=wp.vec3),
     loss: wp.array(dtype=wp.float32),
 ):
@@ -479,7 +497,7 @@ def render_forward(
         splat = int(pairs[entry] & wp.uint64(0xFFFFFFFF))
         alpha = alpha_at_pixel(means[splat], log_scales[splat], quaternions[splat],
                                opacity_logits[splat], cameras[view], px, py,
-                               float(width), float(height), focal, compact_enabled, compact_beta, compact_alpha_min)
+                               float(width), float(height), focal, compact_enabled, compact_beta, compact_alpha_min, kernel_kind)
         if alpha > 0.0:
             colour = colour_at_view(color[splat])
             rgb = rgb + transmittance * alpha * colour
@@ -514,6 +532,7 @@ def render_backward(
     compact_enabled: int,
     compact_beta: float,
     compact_alpha_min: float,
+    kernel_kind: int,
     mean_grad_flat: wp.array(dtype=wp.float32),
     scale_grad_flat: wp.array(dtype=wp.float32),
     quaternion_grad_flat: wp.array(dtype=wp.float32),
@@ -543,7 +562,7 @@ def render_backward(
         opacity_logit = opacity_logits[splat]
         camera = cameras[view]
         alpha = alpha_at_pixel(mean, log_scale, quaternion, opacity_logit, camera,
-                               px, py, float(width), float(height), focal, compact_enabled, compact_beta, compact_alpha_min)
+                               px, py, float(width), float(height), focal, compact_enabled, compact_beta, compact_alpha_min, kernel_kind)
         if alpha > 0.0:
             colour = colour_at_view(color[splat])
             next_transmittance = transmittance * (1.0 - alpha)
@@ -574,7 +593,7 @@ def render_backward(
             # it is unused. Scale each by the alpha adjoint before accumulating.
             adjoints = wp.grad(alpha_at_pixel)(mean, log_scale, quaternion, opacity_logit,
                                                camera, px, py,float(width), float(height), focal,
-                                               compact_enabled, compact_beta, compact_alpha_min)
+                                               compact_enabled, compact_beta, compact_alpha_min, kernel_kind)
 
             # Write results with `wp.atomic_add` into mean_grad_flat, scale_grad_flat,
             # quaternion_grad_flat, opacity_grad and color_grad_flat -- many pixels touch the
@@ -679,6 +698,7 @@ def render_sparse_forward(
     compact_enabled: int,
     compact_beta: float,
     compact_alpha_min: float,
+    kernel_kind: int,
     rendered_rgb: wp.array(dtype=wp.vec3),
     last_contributor: wp.array(dtype=wp.int32),
     loss: wp.array(dtype=wp.float32),
@@ -697,7 +717,7 @@ def render_sparse_forward(
         alpha = alpha_at_pixel(
             means[splat], log_scales[splat], quaternions[splat], opacity_logits[splat],
             camera, px, py, float(width), float(height), focal,
-            compact_enabled, compact_beta, compact_alpha_min,
+            compact_enabled, compact_beta, compact_alpha_min, kernel_kind,
         )
         if alpha > 0.0:
             colour = colour_at_view(color[splat])
@@ -735,6 +755,7 @@ def render_sparse_backward(
     compact_enabled: int,
     compact_beta: float,
     compact_alpha_min: float,
+    kernel_kind: int,
     mean_grad_flat: wp.array(dtype=wp.float32),
     scale_grad_flat: wp.array(dtype=wp.float32),
     quaternion_grad_flat: wp.array(dtype=wp.float32),
@@ -761,7 +782,7 @@ def render_sparse_backward(
         alpha = alpha_at_pixel(
             mean, log_scale, quaternion, opacity_logit, camera,
             px, py, float(width), float(height), focal,
-            compact_enabled, compact_beta, compact_alpha_min,
+            compact_enabled, compact_beta, compact_alpha_min, kernel_kind,
         )
         if alpha > 0.0:
             colour = colour_at_view(color[splat])
@@ -798,7 +819,7 @@ def render_sparse_backward(
             # it is unused. Scale each by the alpha adjoint before accumulating.
             adjoints = wp.grad(alpha_at_pixel)(mean, log_scale, quaternion, opacity_logit,
                                                camera, px, py,float(width), float(height), focal,
-                                               compact_enabled, compact_beta, compact_alpha_min)
+                                               compact_enabled, compact_beta, compact_alpha_min, kernel_kind)
 
             # Write results with `wp.atomic_add` into mean_grad_flat, scale_grad_flat,
             # quaternion_grad_flat, opacity_grad and color_grad_flat -- many pixels touch the
@@ -971,11 +992,14 @@ class WarpImageTrainer:
 
     def __init__(self, targets, cameras, focal, scene_radius, capacity, initial_splats,
                  device, seed, init_scene=None, background=(1.0, 1.0, 1.0),
-                 learning_rates=None, tile_pair_capacity=None, training_options=None):
+                 learning_rates=None, tile_pair_capacity=None, training_options=None,
+                 kernel="gaussian"):
         self.height, self.width = targets.shape[1], targets.shape[2]
         self.intrinsics = self._normalise_intrinsics(focal, len(cameras))
         self.focal = float(self.intrinsics[0, 0])
         self.capacity, self.device = capacity, wp.get_device(device)
+        self.kernel = kernel
+        self.kernel_kind = kernel_id(kernel)
         # Training always uses one randomly selected camera. Evaluation also renders one camera
         # at a time, so every image buffer can have a simple, fixed batch dimension of one.
         self.max_views_per_batch = 1
@@ -1140,7 +1164,7 @@ class WarpImageTrainer:
         return self.tiles.build(
             self.means, self.log_scales, self.quaternions, self.opacity, self.active_device,
             self.cameras, view_ids, self.width, self.height,
-            self.focal, self.training_options["compact_box"],
+            self.focal, self.training_options["compact_box"], self.kernel_kind,
         )
 
     def _draw_sparse_samples(self, samples_per_tile=None, rng=None) -> np.ndarray:
@@ -1303,7 +1327,8 @@ class WarpImageTrainer:
         read back afterwards -- the loss alone, or the loss and the image. Keeping two copies of
         the argument list meant either could drift out of step with the kernel signature.
         """
-        offsets, pairs, _ = self.build_tiles(np.asarray([view_id], np.int32))
+        offsets, pairs, pair_count = self.build_tiles(np.asarray([view_id], np.int32))
+        self.last_pair_count = pair_count
         self.loss.zero_()
         wp.launch(
             render_forward,
@@ -1346,12 +1371,13 @@ class WarpImageTrainer:
     def compact_box_args(self):
         """The compact-support settings every render kernel needs, in launch order.
 
-        `alpha_at_pixel` truncates each splat at its own compact-support radius, so these three
-        scalars are appended to the inputs of every kernel that shades a pixel. Exposed here (and
+        `alpha_at_pixel` uses these compact settings and the kernel id. They are
+        appended to the inputs of every kernel that shades a pixel. Exposed here (and
         reached through `__getattr__` by the SH trainers) so the values come from one place.
         """
         compact = self.training_options["compact_box"]
-        return [int(compact["enabled"]), float(compact["beta"]), float(compact["alpha_min"])]
+        return [int(compact["enabled"]), float(compact["beta"]),
+                float(compact["alpha_min"]), self.kernel_kind]
 
     def multiview_adc_scores(self, candidate_indices, view_ids, render_view=None):
         """Reference multi-view ADC scorer for a bounded set of candidate splats.
@@ -1376,13 +1402,10 @@ class WarpImageTrainer:
         targets = self.targets_host
         compact = self.training_options["compact_box"]
         opacity = sigmoid(self.opacity.numpy()[candidate_indices])
-        support = np.full(len(candidate_indices), 9.0, np.float32)
-        if compact["enabled"]:
-            support.fill(0.0)
-            visible_opacity = opacity > compact["alpha_min"]
-            support[visible_opacity] = (
-                compact["beta"] * 2.0 * np.log(opacity[visible_opacity] / compact["alpha_min"])
-            )
+        support = support_radius_squared(
+            opacity, self.kernel_kind, compact,
+            SUPPORT_RADIUS_SQUARED, ALPHA_CUTOFF,
+        )
 
         densify_score = np.zeros(len(candidate_indices), np.float32)
         low_error_score = np.zeros(len(candidate_indices), np.float32)
@@ -1915,6 +1938,7 @@ def main() -> None:
             "multiview_adc": adc,
             "sparse": sparse,
         },
+        kernel=config["experiment"]["kernel"],
     )
     output = png_output_path(paths["output"])
     snapshots = Path(f"{output.with_suffix('')}_snapshots")
@@ -1927,7 +1951,7 @@ def main() -> None:
 
 def run_training(
     trainer, config, targets, eval_view_ids, snapshots, output, description=None,
-    held_out_frame_ids=None, phase_schedule=None, metric_reporter=None,
+    held_out_frame_ids=None, metric_reporter=None,
 ) -> None:
     """Run the training loop: logging, snapshots, densification, and the final save.
 
@@ -1989,19 +2013,15 @@ def run_training(
 
     # Every trainer this loop drives reports which loss term is active from construction onward:
     # a fixed one here, a changing one in the versions that blend terms.
-    evaluation_context = (
-        phase_schedule.evaluation_context if phase_schedule is not None else nullcontext
-    )
-    with evaluation_context():
-        if metric_reporter is not None:
-            fixed_eval_loss = metric_reporter(0, trainer, eval_view_ids, 0.0)
-        else:
-            fixed_eval_loss = trainer.evaluate(eval_view_ids)
-        save_rendered_image(trainer, snapshots / "out_000000.png")
-        if reporting["save_ply"]:
-            initial_ply = snapshots / "out_000000.ply"
-            trainer.gaussian_set().to_ply(initial_ply)
-            trainer.save_sidecars(initial_ply)
+    if metric_reporter is not None:
+        fixed_eval_loss = metric_reporter(0, trainer, eval_view_ids, 0.0)
+    else:
+        fixed_eval_loss = trainer.evaluate(eval_view_ids)
+    save_rendered_image(trainer, snapshots / "out_000000.png")
+    if reporting["save_ply"]:
+        initial_ply = snapshots / "out_000000.ply"
+        trainer.gaussian_set().to_ply(initial_ply)
+        trainer.save_sidecars(initial_ply)
     fixed_eval_iteration = 0
     loss_ema = ExponentialMovingAverage(reporting["loss_ema_decay"])
     fixed_eval_ema = ExponentialMovingAverage(reporting["loss_ema_decay"])
@@ -2014,7 +2034,7 @@ def run_training(
         ),
         flush=True,
     )
-    # Keep the per-step training-camera sequence paired across methods even when
+    # Keep the per-step training-camera sequence paired across kernels even when
     # their content-dependent late-prune decisions draw different ADC views.
     view_rng = np.random.default_rng(runtime["seed"])
     adc_rng = np.random.default_rng(np.random.SeedSequence([runtime["seed"], 1]))
@@ -2027,24 +2047,14 @@ def run_training(
     completed_iteration = 0
     training_started = perf_counter()
     for iteration in range(1, training["iterations"] + 1):
-        if phase_schedule is not None:
-            phase_schedule.before_step(iteration)
         completed_iteration = iteration
         view_ids = np.asarray([view_rng.integers(len(targets))], dtype=np.int32)
-        # A structural update resets Adam moments in this trainer. Apply the same
-        # one-tick omission to every method, including the baseline, so a phase
-        # boundary cannot coincide with a hidden optimizer restart.
-        at_phase_boundary = bool(
-            phase_schedule is not None
-            and phase_schedule.switch_step > 0
-            and iteration == phase_schedule.switch_step
-        )
         should_densify = bool(
-            not at_phase_boundary and densification["interval"]
+            densification["interval"]
             and iteration % densification["interval"] == 0
         )
         should_late_prune = bool(
-            not at_phase_boundary and adc["enabled"]
+            adc["enabled"]
             and late_prune_armed
             and iteration % adc["late_prune_interval"] == 0
         )
@@ -2081,7 +2091,7 @@ def run_training(
                         flush=True,
                     )
         if (
-            not at_phase_boundary and densification["opacity_reset_interval"]
+            densification["opacity_reset_interval"]
             and iteration % densification["opacity_reset_interval"] == 0
         ):
             reset_window.warn_if_unrecovered(iteration)
@@ -2091,19 +2101,18 @@ def run_training(
         if loss is not None:
             loss_ema.update(loss)
         if is_eval_tick or should_snapshot:
-            with evaluation_context():
-                if is_eval_tick and metric_reporter is not None:
-                    fixed_eval_loss = metric_reporter(
-                        iteration, trainer, eval_view_ids, perf_counter() - training_started,
-                    )
-                else:
-                    fixed_eval_loss = trainer.evaluate(eval_view_ids)
-                if should_snapshot:
-                    save_rendered_image(trainer, snapshots / f"out_{iteration:06d}.png")
-                    if reporting["save_ply"]:
-                        snapshot_ply = snapshots / f"out_{iteration:06d}.ply"
-                        trainer.gaussian_set().to_ply(snapshot_ply)
-                        trainer.save_sidecars(snapshot_ply)
+            if is_eval_tick and metric_reporter is not None:
+                fixed_eval_loss = metric_reporter(
+                    iteration, trainer, eval_view_ids, perf_counter() - training_started,
+                )
+            else:
+                fixed_eval_loss = trainer.evaluate(eval_view_ids)
+            if should_snapshot:
+                save_rendered_image(trainer, snapshots / f"out_{iteration:06d}.png")
+                if reporting["save_ply"]:
+                    snapshot_ply = snapshots / f"out_{iteration:06d}.ply"
+                    trainer.gaussian_set().to_ply(snapshot_ply)
+                    trainer.save_sidecars(snapshot_ply)
             fixed_eval_iteration = iteration
             fixed_eval_ema.update(fixed_eval_loss)
             # Convergence bookkeeping only advances on a true eval_every tick. A snapshot alone

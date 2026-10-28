@@ -130,10 +130,7 @@ class TrainingConfig:
             "save_ply": True,
         },
         "experiment": {
-            "method": "none",
-            # Last warm-up step; step phase_switch_step + 1 uses original targets.
-            # Zero runs the original-image baseline throughout.
-            "phase_switch_step": 0,
+            "kernel": "gaussian",
         },
     }
 
@@ -278,17 +275,8 @@ class TrainingConfig:
             raise ValueError("reporting.loss_ema_decay must be in [0, 1).")
         if not isinstance(reporting["save_ply"], bool):
             raise ValueError("reporting.save_ply must be true or false.")
-        if experiment["method"] not in (
-            "none", "downsample", "mean", "gaussian", "bilateral", "kuwahara", "unsharp"
-        ):
-            raise ValueError("experiment.method is not a supported preprocessing method.")
-        switch = experiment["phase_switch_step"]
-        if (not isinstance(switch, int) or isinstance(switch, bool)
-                or not 0 <= switch < training["iterations"]):
-            raise ValueError(
-                "experiment.phase_switch_step must be an integer from 0 to "
-                "training.iterations - 1."
-            )
+        if experiment["kernel"] not in ("gaussian", "linear"):
+            raise ValueError("experiment.kernel must be 'gaussian' or 'linear'.")
         if not isinstance(compact["enabled"], bool):
             raise ValueError("compact_box.enabled must be true or false.")
         if compact["beta"] <= 0.0:

@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib
+import json
 import math
 from pathlib import Path
 import sys
@@ -126,6 +127,7 @@ def build_trainer(args, scene, targets, cameras, focal, scene_radius, device):
         targets, cameras, focal, scene_radius, capacity, capacity, device, 0,
         init_scene=scene, background=background,
         tile_pair_capacity=args.tile_pair_capacity,
+        kernel=args.kernel,
     )
     sh_path = args.sh_npz if args.sh_npz is not None else args.ply.with_suffix(".sh.npz")
     if args.sh_degree == 2 and not sh_path.exists():
@@ -161,6 +163,15 @@ def build_trainer(args, scene, targets, cameras, focal, scene_radius, device):
 
 
 def evaluate(args: argparse.Namespace) -> None:
+    if args.kernel is None:
+        config_paths = (args.ply.parent / "run_config.json",
+                        args.ply.parent.parent / "run_config.json")
+        args.kernel = "gaussian"
+        for config_path in config_paths:
+            if config_path.exists():
+                args.kernel = json.loads(config_path.read_text()).get(
+                    "experiment", {}).get("kernel", "gaussian")
+                break
     wp.init()
     device = resolve_device(args.arch)
     data = args.data.expanduser().resolve()
@@ -211,7 +222,7 @@ def evaluate(args: argparse.Namespace) -> None:
         f"Evaluating {len(scene.means):,} splats from {args.ply} against {len(frame_paths)} "
         f"view(s) in {manifest_path} at {width}x{height} on Warp {device}; "
         f"appearance={'degree-2 SH' if using_sh else 'degree-0 RGB'}; "
-        f"metrics={', '.join(wanted)}.",
+        f"kernel={args.kernel}; metrics={', '.join(wanted)}.",
         flush=True,
     )
 
@@ -301,6 +312,8 @@ def main() -> None:
         help="Sidecar path. Default: the PLY's name with a .sh.npz suffix.",
     )
     parser.add_argument("--tile-pair-capacity", type=int, default=None)
+    parser.add_argument("--kernel", choices=("gaussian", "linear"), default=None,
+                        help="Defaults to the PLY run_config.json kernel, or gaussian.")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/eval"))
     parser.add_argument("--csv", type=Path, default=Path("outputs/eval/metrics.csv"))
     evaluate(parser.parse_args())

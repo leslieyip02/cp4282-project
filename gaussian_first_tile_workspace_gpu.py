@@ -31,6 +31,7 @@ NEAR_PLANE = _base_trainer.NEAR_PLANE
 SUPPORT_RADIUS_SQUARED = _base_trainer.SUPPORT_RADIUS_SQUARED
 TILE = _base_trainer.TILE
 projected_covariance = _base_trainer.projected_covariance
+kernel_support = _base_trainer.kernel_support
 
 
 @wp.kernel(enable_backward=False)
@@ -50,6 +51,7 @@ def project_tile_records(
     compact_box_enabled: int,
     compact_box_beta: float,
     compact_box_alpha_min: float,
+    kernel_kind: int,
     centres: wp.array(dtype=wp.vec2),
     conics: wp.array(dtype=wp.vec3),
     supports: wp.array(dtype=wp.float32),
@@ -76,15 +78,9 @@ def project_tile_records(
                 log_scales[splat], quaternions[splat], camera,
                 point[0], point[1], z, focal,
             )
-            support = float(SUPPORT_RADIUS_SQUARED)
-            if compact_box_enabled != 0:
-                opacity = 1.0 / (1.0 + wp.exp(-opacity_logits[splat]))
-                support = 0.0
-                if opacity > compact_box_alpha_min:
-                    support = wp.min(
-                        float(SUPPORT_RADIUS_SQUARED),
-                        compact_box_beta * 2.0 * wp.log(opacity / compact_box_alpha_min),
-                    )
+            opacity = 1.0 / (1.0 + wp.exp(-opacity_logits[splat]))
+            support = kernel_support(opacity, kernel_kind, compact_box_enabled,
+                                     compact_box_beta, compact_box_alpha_min)
 
             determinant = covariance[0] * covariance[2] - covariance[1] * covariance[1]
             if support > 0.0 and determinant > 1.0e-12:
@@ -152,7 +148,7 @@ class GaussianFirstTileWorkspace:
         self.view_ids = wp.zeros(max_views_per_batch, dtype=wp.int32, device=self.device)
 
     def build(self, means, log_scales, quaternions, opacity, active_device, cameras,
-              view_ids, width, height, focal, compact_box):
+              view_ids, width, height, focal, compact_box, kernel_kind=0):
         view_ids = np.asarray(view_ids, np.int32)
         view_count = len(view_ids)
         if view_count < 1 or view_count > self.max_views_per_batch:
@@ -173,7 +169,7 @@ class GaussianFirstTileWorkspace:
                 means, log_scales, quaternions, opacity, active_device,
                 cameras, self.view_ids, self.capacity, width, height, focal, view_count,
                 int(compact_box["enabled"]), float(compact_box["beta"]),
-                float(compact_box["alpha_min"]),
+                float(compact_box["alpha_min"]), kernel_kind,
             ],
             outputs=[
                 self.projected_centres, self.projected_conics, self.projected_supports,

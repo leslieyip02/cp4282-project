@@ -11,7 +11,7 @@
 set -euo pipefail
 
 cd "${SLURM_SUBMIT_DIR:?Submit from the project root}"
-if [[ ! -f synthetic_experiment.py ]]; then
+if [[ ! -f kernel_experiment.py ]]; then
   echo "Submit this script from the cp4282-project root." >&2
   exit 1
 fi
@@ -40,7 +40,7 @@ else
   echo "nvidia-smi is unavailable on this node."
 fi
 "$python_bin" scripts/check_training_env.py --gpu
-"$python_bin" synthetic_experiment.py \
+"$python_bin" kernel_experiment.py \
   --config "$config" \
   --arch gpu \
   --output-root "$output_root" \
