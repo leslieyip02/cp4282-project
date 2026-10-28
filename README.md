@@ -1,6 +1,6 @@
 # Screen-space kernels for 3D Gaussian splatting
 
-This project compares Gaussian and linear radial splat footprints under the
+This project compares Gaussian, linear radial, and degree-2 polynomial splat footprints under the
 same projected 3D ellipsoids and training budget. It measures held-out PSNR and
 SSIM, training time, rendering time, splat count, and tile work. The full
 methodology is in [docs/experiment.md](docs/experiment.md).
@@ -30,7 +30,7 @@ A Mip-NeRF 360 scene uses its COLMAP points; see [docs/data.md](docs/data.md).
 
 ## Run the comparison
 
-List the six array indices for one scene:
+List the nine array indices for one scene:
 
 ```sh
 .venv/bin/python scripts/run_kernel_matrix.py --list
@@ -44,16 +44,26 @@ Run a one-seed pilot on a CUDA machine (substitute `data/bonsai` and
   --kernel gaussian --seed 7 --arch gpu
 .venv/bin/python kernel_experiment.py --data data/lego --config config/synthetic.yaml \
   --kernel linear --seed 7 --arch gpu
+.venv/bin/python kernel_experiment.py --data data/lego --config config/synthetic.yaml \
+  --kernel polynomial --seed 7 --arch gpu
 .venv/bin/python analyze_kernels.py --scenes lego --seeds 7
 ```
 
-On the cluster, submit each scene's six-task GPU array after the project code
+On the cluster, submit each scene's nine-task GPU array after the project code
 and dataset are present. Create `logs/` before submitting:
 
 ```sh
 mkdir -p logs
 sbatch scripts/slurm_train_synthetic.sh data/lego config/synthetic.yaml
 sbatch scripts/slurm_train_real.sh data/bonsai config/real.yaml
+```
+
+For scenes already completed with Gaussian and linear under the same config,
+run only indices 6–8 for the new polynomial kernel:
+
+```sh
+sbatch --array=6-8 scripts/slurm_train_synthetic.sh data/lego config/synthetic.yaml
+sbatch --array=6-8 scripts/slurm_train_real.sh data/bonsai config/real.yaml
 ```
 
 After all arrays finish, run:

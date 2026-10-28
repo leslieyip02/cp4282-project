@@ -54,7 +54,8 @@ from splat_math import (
     TRANSMITTANCE_CUTOFF,
     quaternion_to_matrix,
 )
-from kernels import GAUSSIAN, LINEAR, LINEAR_RADIUS_SQUARED, kernel_id, support_radius_squared
+from kernels import (GAUSSIAN, LINEAR, POLYNOMIAL, LINEAR_RADIUS_SQUARED,
+                     POLYNOMIAL_RADIUS_SQUARED, kernel_id, support_radius_squared)
 # Bound here as well as imported: the later trainers and the evaluation scripts reach these
 # through this module, and moving them out from under those names would be a change to every
 # caller rather than to where the code lives.
@@ -385,6 +386,8 @@ def kernel_support(opacity: float, kernel_kind: int, compact_enabled: int,
     natural = float(SUPPORT_RADIUS_SQUARED)
     if kernel_kind == LINEAR:
         natural = float(LINEAR_RADIUS_SQUARED)
+    elif kernel_kind == POLYNOMIAL:
+        natural = float(POLYNOMIAL_RADIUS_SQUARED)
     if compact_enabled == 0:
         return natural
     threshold = wp.max(compact_alpha_min, float(ALPHA_CUTOFF))
@@ -394,6 +397,8 @@ def kernel_support(opacity: float, kernel_kind: int, compact_enabled: int,
         if kernel_kind == LINEAR:
             edge = 1.0 - wp.pow(ratio, compact_beta)
             support = natural * edge * edge
+        elif kernel_kind == POLYNOMIAL:
+            support = natural * (1.0 - wp.pow(ratio, compact_beta / 2.0))
         else:
             support = wp.min(natural, compact_beta * 2.0 * wp.log(opacity / threshold))
     return support
@@ -439,6 +444,9 @@ def alpha_at_pixel(
         weight = wp.exp(-0.5 * q)
         if kernel_kind == LINEAR:
             weight = wp.max(0.0, 1.0 - wp.sqrt(wp.max(q, 1.0e-12) / float(LINEAR_RADIUS_SQUARED)))
+        elif kernel_kind == POLYNOMIAL:
+            base = wp.max(0.0, 1.0 - q / float(POLYNOMIAL_RADIUS_SQUARED))
+            weight = base * base
         candidate = wp.min(opacity * weight, 0.99)
         if candidate >= ALPHA_CUTOFF:
             alpha = candidate

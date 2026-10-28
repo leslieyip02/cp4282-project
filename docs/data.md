@@ -51,7 +51,7 @@ Everything under `data/` is ignored by Git.
 A scene needs `transforms_train.json`, `transforms_val.json`, and
 `transforms_test.json` plus their referenced images. The NeRF-synthetic download
 does not need to contain `init.ply`: generate it once before running the kernel
-matrix. All six kernel/seed runs for a scene then read the same initialization.
+matrix. All nine kernel/seed runs for a scene then read the same initialization.
 The initialization seed (default 7) is
 separate from the training seeds (7, 17, 27).
 
@@ -69,6 +69,6 @@ count is 50,000, matching `model.initial_splats` in the shared training defaults
 Keep the count below `model.capacity` to allow densification. The generator
 refuses to replace an existing `init.ply` unless passed `--overwrite`.
 
-For the kernel experiment, use one initialization per scene so both kernels
+For the kernel experiment, use one initialization per scene so all kernels
 start from the same points. If replacing a previously supplied
 initialization, save it under another name first and generate a new `init.ply`.

@@ -8,7 +8,8 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "shared"))
-from kernels import GAUSSIAN, LINEAR, LINEAR_RADIUS_SQUARED, support_radius_squared
+from kernels import (GAUSSIAN, LINEAR, POLYNOMIAL, LINEAR_RADIUS_SQUARED,
+                     POLYNOMIAL_RADIUS_SQUARED, support_radius_squared)
 from training_config import TrainingConfig
 
 
@@ -17,6 +18,7 @@ class KernelTests(unittest.TestCase):
         q = 2.0 * math.log(2.0)
         self.assertAlmostEqual(math.exp(-q / 2.0), 0.5)
         self.assertAlmostEqual(1.0 - math.sqrt(q / LINEAR_RADIUS_SQUARED), 0.5)
+        self.assertAlmostEqual((1.0 - q / POLYNOMIAL_RADIUS_SQUARED) ** 2, 0.5)
 
     def test_linear_support_is_finite_and_alpha_aware(self):
         compact = {"enabled": True, "beta": 0.5, "alpha_min": 1.0 / 255.0}
@@ -33,6 +35,10 @@ class KernelTests(unittest.TestCase):
         np.testing.assert_allclose(
             support_radius_squared(opacity, GAUSSIAN, compact, 9.0, 1.0 / 255.0),
             9.0,
+        )
+        np.testing.assert_allclose(
+            support_radius_squared(opacity, POLYNOMIAL, compact, 9.0, 1.0 / 255.0),
+            POLYNOMIAL_RADIUS_SQUARED,
         )
 
     def test_config_rejects_unknown_kernel(self):

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=gs-real
-#SBATCH --array=0-5%4
+#SBATCH --array=0-8%4
 #SBATCH --gres=gpu:nv:1
 #SBATCH --constraint=xgpd|xgpf
 #SBATCH --cpus-per-task=4
@@ -38,8 +38,8 @@ if [[ ! -f "$config" ]]; then
   exit 1
 fi
 index="${SLURM_ARRAY_TASK_ID:?This script must run as a Slurm array job}"
-if [[ ! "$index" =~ ^[0-5]$ ]]; then
-  echo "Invalid Slurm array index: $index (expected 0-5)" >&2
+if [[ ! "$index" =~ ^[0-8]$ ]]; then
+  echo "Invalid Slurm array index: $index (expected 0-8)" >&2
   exit 1
 fi
 name_arg=()

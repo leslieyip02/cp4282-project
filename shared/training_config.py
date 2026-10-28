@@ -281,8 +281,8 @@ class TrainingConfig:
             raise ValueError("reporting.loss_ema_decay must be in [0, 1).")
         if not isinstance(reporting["save_ply"], bool):
             raise ValueError("reporting.save_ply must be true or false.")
-        if experiment["kernel"] not in ("gaussian", "linear"):
-            raise ValueError("experiment.kernel must be 'gaussian' or 'linear'.")
+        if experiment["kernel"] not in ("gaussian", "linear", "polynomial"):
+            raise ValueError("experiment.kernel must be gaussian, linear, or polynomial.")
         if not isinstance(compact["enabled"], bool):
             raise ValueError("compact_box.enabled must be true or false.")
         if compact["beta"] <= 0.0:

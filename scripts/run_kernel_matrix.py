@@ -1,4 +1,4 @@
-"""Enumerate or run the 2-kernel x 3-seed array for one dataset path."""
+"""Enumerate or run the 3-kernel x 3-seed array for one dataset path."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-KERNELS = ("gaussian", "linear")
+KERNELS = ("gaussian", "linear", "polynomial")
 SEEDS = (7, 17, 27)
 
 
@@ -22,7 +22,7 @@ def main():
     parser.add_argument("--name", help="Output label; defaults to the dataset directory name")
     parser.add_argument("--config", type=Path, default=ROOT / "config/synthetic.yaml")
     parser.add_argument("--index", type=int, help="Run this zero-based array task")
-    parser.add_argument("--list", action="store_true", help="Print the 6 kernel/seed pairs")
+    parser.add_argument("--list", action="store_true", help="Print the 9 kernel/seed pairs")
     parser.add_argument("--arch", choices=("cpu", "gpu"), default="gpu")
     parser.add_argument("--output-root", type=Path, default=ROOT / "outputs")
     args = parser.parse_args()

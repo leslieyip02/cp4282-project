@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=gs-kernel
-#SBATCH --array=0-5%4
+#SBATCH --array=0-8%4
 #SBATCH --gres=gpu:nv:1
 #SBATCH --constraint=xgpd|xgpf
 #SBATCH --cpus-per-task=4

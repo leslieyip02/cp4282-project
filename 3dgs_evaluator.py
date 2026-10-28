@@ -319,7 +319,7 @@ def main() -> None:
         help="Sidecar path. Default: the PLY's name with a .sh.npz suffix.",
     )
     parser.add_argument("--tile-pair-capacity", type=int, default=None)
-    parser.add_argument("--kernel", choices=("gaussian", "linear"), default=None,
+    parser.add_argument("--kernel", choices=("gaussian", "linear", "polynomial"), default=None,
                         help="Defaults to the PLY run_config.json kernel, or gaussian.")
     parser.add_argument("--max-projected-radius-fraction", type=float, default=None,
                         help="Cull splats whose projected support exceeds this fraction of the "

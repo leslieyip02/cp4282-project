@@ -264,6 +264,7 @@ def main() -> None:
         raise RuntimeError(f"{args.device} requested, but Warp cannot access a CUDA driver.")
     check_parameter_gradients(args.device)
     check_parameter_gradients(args.device, "linear")
+    check_parameter_gradients(args.device, "polynomial")
     check_background_and_gradient_reset(args.device)
     check_gpu_tile_depth_order(args.device)
     check_compact_box_reduces_pairs(args.device)
