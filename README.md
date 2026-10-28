@@ -5,6 +5,11 @@ same projected 3D ellipsoids and training budget. It measures held-out PSNR and
 SSIM, training time, rendering time, splat count, and tile work. The full
 methodology is in [docs/experiment.md](docs/experiment.md).
 
+Real-scene runs use a projected-footprint limit to exclude near-camera splats
+that can cover most of an image. The earlier unguarded bonsai results need a
+fresh matched rerun before comparing kernels. Use a new `OUTPUT_ROOT` on the
+cluster to preserve the earlier checkpoints.
+
 ## Local setup
 
 Install `requirements.txt` into `.venv`, then check the renderer:

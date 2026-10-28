@@ -52,6 +52,7 @@ def project_tile_records(
     compact_box_beta: float,
     compact_box_alpha_min: float,
     kernel_kind: int,
+    max_radius_fraction: float,
     centres: wp.array(dtype=wp.vec2),
     conics: wp.array(dtype=wp.vec3),
     supports: wp.array(dtype=wp.float32),
@@ -83,7 +84,12 @@ def project_tile_records(
                                      compact_box_beta, compact_box_alpha_min)
 
             determinant = covariance[0] * covariance[2] - covariance[1] * covariance[1]
-            if support > 0.0 and determinant > 1.0e-12:
+            max_radius = max_radius_fraction * float(wp.max(width, height))
+            too_large = max_radius_fraction > 0.0 and (
+                support * covariance[0] > max_radius * max_radius
+                or support * covariance[2] > max_radius * max_radius
+            )
+            if support > 0.0 and determinant > 1.0e-12 and not too_large:
                 conic = wp.vec3(
                     covariance[2] / determinant,
                     -covariance[1] / determinant,
@@ -148,7 +154,8 @@ class GaussianFirstTileWorkspace:
         self.view_ids = wp.zeros(max_views_per_batch, dtype=wp.int32, device=self.device)
 
     def build(self, means, log_scales, quaternions, opacity, active_device, cameras,
-              view_ids, width, height, focal, compact_box, kernel_kind=0):
+              view_ids, width, height, focal, compact_box, kernel_kind=0,
+              max_radius_fraction=0.0):
         view_ids = np.asarray(view_ids, np.int32)
         view_count = len(view_ids)
         if view_count < 1 or view_count > self.max_views_per_batch:
@@ -170,6 +177,7 @@ class GaussianFirstTileWorkspace:
                 cameras, self.view_ids, self.capacity, width, height, focal, view_count,
                 int(compact_box["enabled"]), float(compact_box["beta"]),
                 float(compact_box["alpha_min"]), kernel_kind,
+                float(max_radius_fraction),
             ],
             outputs=[
                 self.projected_centres, self.projected_conics, self.projected_supports,

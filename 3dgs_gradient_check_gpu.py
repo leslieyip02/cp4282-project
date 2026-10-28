@@ -57,16 +57,30 @@ def one_splat_scene() -> GaussianSet:
 
 
 def make_trainer(width: int, target: np.ndarray, background, device: str,
-                 kernel: str = "gaussian") -> WarpImageTrainer:
+                 kernel: str = "gaussian", radius_fraction: float = 0.0) -> WarpImageTrainer:
     targets = np.broadcast_to(target, (1, width, width, 3)).copy().astype(np.float32)
     cameras = np.eye(4, dtype=np.float32)[None]
     trainer = WarpImageTrainer(
         targets, cameras, float(width), 1.0, 1, 1, device, 7,
         init_scene=one_splat_scene(), background=background,
-        training_options=DENSE_ONLY,
+        training_options={**DENSE_ONLY, "projection": {
+            "max_radius_fraction": radius_fraction,
+        }},
         kernel=kernel,
     )
     return trainer
+
+
+def check_projected_radius_guard(device: str) -> None:
+    target = np.array([0.2, 0.3, 0.4], np.float32)
+    unguarded = make_trainer(32, target, (1.0, 1.0, 1.0), device)
+    guarded = make_trainer(32, target, (1.0, 1.0, 1.0), device,
+                           radius_fraction=0.25)
+    unguarded.render_single_view_image(0)
+    guarded.render_single_view_image(0)
+    assert unguarded.last_pair_count > 0
+    assert guarded.last_pair_count == 0
+    print("radius guard      oversized projected splat is excluded from tiles")
 
 
 def finite_difference(trainer, field, dtype, index, epsilon=2.0e-3) -> float:
@@ -255,6 +269,7 @@ def main() -> None:
     check_compact_box_reduces_pairs(args.device)
     check_learning_rate_schedule()
     check_projected_tile_bounds(args.device)
+    check_projected_radius_guard(args.device)
     print(f"All Warp gradient checks passed on {args.device}.")
 
 

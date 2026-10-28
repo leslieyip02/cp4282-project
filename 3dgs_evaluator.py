@@ -128,6 +128,9 @@ def build_trainer(args, scene, targets, cameras, focal, scene_radius, device):
         init_scene=scene, background=background,
         tile_pair_capacity=args.tile_pair_capacity,
         kernel=args.kernel,
+        training_options={"projection": {
+            "max_radius_fraction": args.max_projected_radius_fraction,
+        }},
     )
     sh_path = args.sh_npz if args.sh_npz is not None else args.ply.with_suffix(".sh.npz")
     if args.sh_degree == 2 and not sh_path.exists():
@@ -163,15 +166,18 @@ def build_trainer(args, scene, targets, cameras, focal, scene_radius, device):
 
 
 def evaluate(args: argparse.Namespace) -> None:
+    config_paths = (args.ply.parent / "run_config.json",
+                    args.ply.parent.parent / "run_config.json")
+    run_config = {}
+    for config_path in config_paths:
+        if config_path.exists():
+            run_config = json.loads(config_path.read_text())
+            break
     if args.kernel is None:
-        config_paths = (args.ply.parent / "run_config.json",
-                        args.ply.parent.parent / "run_config.json")
-        args.kernel = "gaussian"
-        for config_path in config_paths:
-            if config_path.exists():
-                args.kernel = json.loads(config_path.read_text()).get(
-                    "experiment", {}).get("kernel", "gaussian")
-                break
+        args.kernel = run_config.get("experiment", {}).get("kernel", "gaussian")
+    if args.max_projected_radius_fraction is None:
+        args.max_projected_radius_fraction = run_config.get(
+            "projection", {}).get("max_radius_fraction", 0.0)
     wp.init()
     device = resolve_device(args.arch)
     data = args.data.expanduser().resolve()
@@ -222,7 +228,8 @@ def evaluate(args: argparse.Namespace) -> None:
         f"Evaluating {len(scene.means):,} splats from {args.ply} against {len(frame_paths)} "
         f"view(s) in {manifest_path} at {width}x{height} on Warp {device}; "
         f"appearance={'degree-2 SH' if using_sh else 'degree-0 RGB'}; "
-        f"kernel={args.kernel}; metrics={', '.join(wanted)}.",
+        f"kernel={args.kernel}; max_radius_fraction={args.max_projected_radius_fraction}; "
+        f"metrics={', '.join(wanted)}.",
         flush=True,
     )
 
@@ -314,6 +321,9 @@ def main() -> None:
     parser.add_argument("--tile-pair-capacity", type=int, default=None)
     parser.add_argument("--kernel", choices=("gaussian", "linear"), default=None,
                         help="Defaults to the PLY run_config.json kernel, or gaussian.")
+    parser.add_argument("--max-projected-radius-fraction", type=float, default=None,
+                        help="Cull splats whose projected support exceeds this fraction of the "
+                             "larger image dimension. Defaults to the run config, or 0 (off).")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/eval"))
     parser.add_argument("--csv", type=Path, default=Path("outputs/eval/metrics.csv"))
     evaluate(parser.parse_args())

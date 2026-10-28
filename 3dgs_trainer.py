@@ -1008,6 +1008,7 @@ class WarpImageTrainer:
             self.learning_rates.update(learning_rates)
         self.training_options = {
             "compact_box": deepcopy(TrainingConfig.DEFAULTS["compact_box"]),
+            "projection": deepcopy(TrainingConfig.DEFAULTS["projection"]),
             "multiview_adc": deepcopy(TrainingConfig.DEFAULTS["multiview_adc"]),
             "sparse": deepcopy(TrainingConfig.DEFAULTS["sparse"]),
         }
@@ -1165,6 +1166,7 @@ class WarpImageTrainer:
             self.means, self.log_scales, self.quaternions, self.opacity, self.active_device,
             self.cameras, view_ids, self.width, self.height,
             self.focal, self.training_options["compact_box"], self.kernel_kind,
+            self.training_options["projection"]["max_radius_fraction"],
         )
 
     def _draw_sparse_samples(self, samples_per_tile=None, rng=None) -> np.ndarray:
@@ -1430,6 +1432,12 @@ class WarpImageTrainer:
                 scales[visible], quaternions[visible], camera, camera_points[visible, :3],
                 intrinsic,
             )
+            max_fraction = self.training_options["projection"]["max_radius_fraction"]
+            within_radius = np.ones(len(variance_x), bool)
+            if max_fraction > 0.0:
+                limit_squared = (max_fraction * max(self.width, self.height)) ** 2
+                within_radius = ((support[visible] * variance_x <= limit_squared)
+                                 & (support[visible] * variance_y <= limit_squared))
             centres = np.empty((int(np.count_nonzero(visible)), 2), np.float32)
             centres[:, 0] = intrinsic[0] * camera_points[visible, 0] / camera_points[visible, 2] + intrinsic[2]
             centres[:, 1] = intrinsic[1] * camera_points[visible, 1] / camera_points[visible, 2] + intrinsic[3]
@@ -1438,7 +1446,8 @@ class WarpImageTrainer:
             max_x = np.floor(centres[:, 0] + radius_scale * np.sqrt(np.maximum(variance_x, 0.0))).astype(np.int32)
             min_y = np.floor(centres[:, 1] - radius_scale * np.sqrt(np.maximum(variance_y, 0.0))).astype(np.int32)
             max_y = np.floor(centres[:, 1] + radius_scale * np.sqrt(np.maximum(variance_y, 0.0))).astype(np.int32)
-            in_image = (max_x >= 0) & (max_y >= 0) & (min_x < self.width) & (min_y < self.height)
+            in_image = (within_radius & (max_x >= 0) & (max_y >= 0)
+                        & (min_x < self.width) & (min_y < self.height))
             visible_indices = np.flatnonzero(visible)
             for local, x0, x1, y0, y1 in zip(
                 visible_indices[in_image],
@@ -1935,6 +1944,7 @@ def main() -> None:
         tile_pair_capacity=model["tile_pair_capacity"],
         training_options={
             "compact_box": compact,
+            "projection": config["projection"],
             "multiview_adc": adc,
             "sparse": sparse,
         },

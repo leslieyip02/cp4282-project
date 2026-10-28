@@ -11,6 +11,8 @@ model:
   height: 260
   capacity: 100000
   background: black
+projection:
+  max_radius_fraction: 0.25
 training:
   iterations: 8000
 learning_rates:

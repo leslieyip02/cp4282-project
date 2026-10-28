@@ -199,7 +199,8 @@ def run(args):
         init_scene=initial, background=background,
         learning_rates=values["learning_rates"],
         tile_pair_capacity=model["tile_pair_capacity"],
-        training_options={key: values[key] for key in ("compact_box", "multiview_adc", "sparse")},
+        training_options={key: values[key] for key in
+                          ("compact_box", "projection", "multiview_adc", "sparse")},
         kernel=kernel,
     )
     reporter = ValidationReporter(run_dir / "validation_metrics.csv")

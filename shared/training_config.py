@@ -78,6 +78,11 @@ class TrainingConfig:
             "beta": 0.5,
             "alpha_min": ALPHA_CUTOFF,
         },
+        "projection": {
+            # 0 disables this guard. Real scenes can contain near-camera splats
+            # whose projected footprint covers most of the image.
+            "max_radius_fraction": 0.0,
+        },
         "multiview_adc": {
             "enabled": True,
             "views": 10,
@@ -187,6 +192,7 @@ class TrainingConfig:
         rates = self.values["learning_rates"]
         densification = self.values["densification"]
         compact = self.values["compact_box"]
+        projection = self.values["projection"]
         adc = self.values["multiview_adc"]
         sparse = self.values["sparse"]
         adaptive = self.values["adaptive"]
@@ -283,6 +289,10 @@ class TrainingConfig:
             raise ValueError("compact_box.beta must be positive.")
         if compact["alpha_min"] <= 0.0:
             raise ValueError("compact_box.alpha_min must be positive.")
+        if (not isinstance(projection["max_radius_fraction"], (int, float))
+                or isinstance(projection["max_radius_fraction"], bool)
+                or not 0.0 <= projection["max_radius_fraction"] <= 1.0):
+            raise ValueError("projection.max_radius_fraction must be in [0, 1].")
         if not isinstance(adc["enabled"], bool):
             raise ValueError("multiview_adc.enabled must be true or false.")
         for name in ("views", "late_prune_interval", "candidate_limit"):

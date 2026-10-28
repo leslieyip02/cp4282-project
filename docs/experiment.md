@@ -21,6 +21,15 @@ culling, ADC, and evaluation
 use the same kernel-specific support rule. No image filtering or phase switch
 is used.
 
+Real scenes also set `projection.max_radius_fraction: 0.25`. A projected splat
+is omitted from a view when either axis-aligned support radius exceeds 25% of
+the larger image dimension. This guards against near-camera splats that form
+large translucent color wedges. It is applied to both kernels in training,
+validation, and test rendering. Synthetic scenes leave the guard disabled.
+This is an exploratory correction motivated by the copied bonsai snapshots;
+the earlier unguarded real-scene runs should be kept separate and both kernels
+must be rerun under the new setting before drawing a comparison.
+
 ## Implementation and verification
 
 - `experiment.kernel` in the YAML selects `gaussian` or `linear` and is saved
@@ -29,7 +38,8 @@ is used.
   paths. `gaussian_first_tile_workspace_gpu.py` uses its support for tiling;
   the multi-view ADC scorer uses the matching CPU support estimate.
 - `3dgs_evaluator.py` reads the saved run config when evaluating a final or
-  snapshot PLY; `--kernel` can override it for an external PLY.
+  snapshot PLY; `--kernel` and `--max-projected-radius-fraction` can override
+  it for an external PLY or a diagnostic render of an old checkpoint.
 - Run `WARP_CACHE_PATH=/tmp/warp-cache .venv/bin/python
   3dgs_gradient_check_gpu.py --device cpu` before cluster runs. It checks
   finite-difference gradients for both kernels and the existing tiling checks.
@@ -69,6 +79,8 @@ Run `scripts/run_kernel_matrix.py --list` for array indices. Outputs are in
 `outputs/kernels/<scene>/<kernel>/seed_<seed>/`. `analyze_kernels.py` writes
 `outputs/kernel_analysis/{paired_runs,kernel_summary,validation_curves,missing_jobs}.csv`.
 Historical filter results in `outputs/analysis/` remain separate.
+When changing the real-scene guard, save new runs to a fresh output root so
+they cannot silently replace the unguarded runs.
 
 ## Final presentation
 
