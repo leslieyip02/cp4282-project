@@ -44,6 +44,7 @@ class TrainingConfig:
             "resolution": DEFAULT_RESOLUTION,
             "width": None,
             "height": None,
+            "long_edge": None,
             "capacity": DEFAULT_SPLATS,
             "initial_splats": DEFAULT_INITIAL_SPLATS,
             "tile_pair_capacity": None,
@@ -133,6 +134,7 @@ class TrainingConfig:
             "loss_ema_decay": 0.95,
             "snapshot_every": 200,
             "save_ply": True,
+            "lpips_net": "vgg",
         },
         "experiment": {
             "kernel": "gaussian",
@@ -208,13 +210,18 @@ class TrainingConfig:
                 raise ValueError(f"paths.{name} cannot be null.")
         if model["background"] not in ("white", "black"):
             raise ValueError("model.background must be 'white' or 'black'.")
-        for dimension in ("width", "height"):
-            if model[dimension] is None:
-                model[dimension] = model["resolution"]
+        long_edge = model["long_edge"]
+        if long_edge is not None:
+            if not isinstance(long_edge, int) or isinstance(long_edge, bool) or long_edge < 1:
+                raise ValueError("model.long_edge must be a positive integer or null.")
+            if model["width"] is not None or model["height"] is not None:
+                raise ValueError("model.long_edge cannot be combined with model.width or model.height.")
+        else:
+            for dimension in ("width", "height"):
+                if model[dimension] is None:
+                    model[dimension] = model["resolution"]
         for name, value in (
             ("model.resolution", model["resolution"]),
-            ("model.width", model["width"]),
-            ("model.height", model["height"]),
             ("model.capacity", model["capacity"]),
             ("model.initial_splats", model["initial_splats"]),
             ("training.iterations", training["iterations"]),
@@ -226,6 +233,11 @@ class TrainingConfig:
         ):
             if not isinstance(value, int) or isinstance(value, bool) or value < 1:
                 raise ValueError(f"{name} must be an integer of at least 1.")
+        if long_edge is None:
+            for dimension in ("width", "height"):
+                value = model[dimension]
+                if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                    raise ValueError(f"model.{dimension} must be an integer of at least 1.")
         if model["initial_splats"] > model["capacity"]:
             raise ValueError("model.initial_splats cannot exceed model.capacity.")
         if (
@@ -281,6 +293,8 @@ class TrainingConfig:
             raise ValueError("reporting.loss_ema_decay must be in [0, 1).")
         if not isinstance(reporting["save_ply"], bool):
             raise ValueError("reporting.save_ply must be true or false.")
+        if reporting["lpips_net"] not in ("vgg", "alex", "squeeze", "none"):
+            raise ValueError("reporting.lpips_net must be vgg, alex, squeeze, or none.")
         if experiment["kernel"] not in ("gaussian", "linear", "polynomial"):
             raise ValueError("experiment.kernel must be gaussian, linear, or polynomial.")
         if not isinstance(compact["enabled"], bool):

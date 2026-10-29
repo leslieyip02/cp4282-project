@@ -25,6 +25,7 @@ reporting:
   eval_manifest: transforms_val.json
   eval_views: 8
   eval_every: 500
+  lpips_net: vgg
   snapshot_every: 2000
   save_ply: true
 experiment:

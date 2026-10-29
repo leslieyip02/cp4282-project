@@ -110,6 +110,19 @@ class RealScene:
         validation_set = set(self.validation_names)
         self.train_names = [name for name in official_train if name not in validation_set]
 
+    def render_size(self, long_edge: int) -> tuple[int, int]:
+        """Choose one aspect-preserving image size for every camera in this scene."""
+        if not isinstance(long_edge, int) or isinstance(long_edge, bool) or long_edge < 1:
+            raise ValueError("long_edge must be a positive integer")
+        first_width, first_height, _ = next(iter(self.cameras.values()))
+        aspect = first_width / first_height
+        for width, height, _ in self.cameras.values():
+            if abs(width / height - aspect) > 0.01:
+                raise ValueError("COLMAP cameras have incompatible aspect ratios")
+        if first_width >= first_height:
+            return long_edge, max(1, round(long_edge / aspect))
+        return max(1, round(long_edge * aspect)), long_edge
+
     def _names(self, filename):
         names = (self.root / filename).read_text().splitlines()
         if not names or len(names) != len(set(names)):

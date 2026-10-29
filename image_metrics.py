@@ -1,8 +1,32 @@
-"""Small NumPy-only image quality metrics shared by the evaluation examples."""
+"""Image quality metrics shared by training and standalone evaluation."""
 
 from __future__ import annotations
 
 import numpy as np
+
+
+class LPIPSMetric:
+    """LPIPS v0.1 on RGB images in [0, 1]; dependencies load only when used."""
+
+    def __init__(self, net: str = "vgg"):
+        try:
+            import lpips
+            import torch
+        except ImportError as error:
+            raise RuntimeError(
+                "LPIPS needs PyTorch and lpips. Install requirements.txt "
+                "or disable LPIPS explicitly."
+            ) from error
+        self.torch = torch
+        self.metric = lpips.LPIPS(net=net, version="0.1").eval()
+
+    def __call__(self, prediction: np.ndarray, target: np.ndarray) -> float:
+        def tensor(image):
+            image = np.clip(np.asarray(image, dtype=np.float32), 0.0, 1.0)
+            return self.torch.from_numpy(image).permute(2, 0, 1).unsqueeze(0) * 2.0 - 1.0
+
+        with self.torch.inference_mode():
+            return float(self.metric(tensor(prediction), tensor(target)).item())
 
 
 def _box_filter(image: np.ndarray, window: int) -> np.ndarray:

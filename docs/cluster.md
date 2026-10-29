@@ -6,6 +6,16 @@ Slurm opens its log files before the job script starts.
 
 Install `requirements.txt` into a Python 3.12 environment on the cluster and
 run `.venv/bin/python scripts/check_training_env.py` before submitting jobs.
+Kernel experiments calculate VGG LPIPS on the final test views by default.
+Set `reporting.lpips_net: none` only when intentionally skipping that metric.
+For existing checkpoints, backfill LPIPS without retraining:
+
+```sh
+.venv/bin/python scripts/backfill_lpips.py outputs/kernels/bonsai/gaussian/seed_7 data/bonsai --arch gpu
+```
+
+This updates that run's `test_metrics.csv` and `test_summary.json`. Re-run
+`analyze_kernels.py` afterward to add paired LPIPS columns to the analysis.
 The training scripts activate `.venv` and check Warp CUDA access inside the
 allocated job. `warp-lang` is pinned to 1.17.0 for the cluster's `sm_70` GPUs;
 see [NVIDIA's installation guide](https://nvidia.github.io/warp/v1.17/user_guide/installation.html).

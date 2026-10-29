@@ -45,7 +45,7 @@ _shared = _here / "shared"
 if str(_shared) not in sys.path:
     sys.path.insert(0, str(_shared))
 
-from image_metrics import ssim_rgb
+from image_metrics import LPIPSMetric, ssim_rgb
 from gaussian_set import GaussianSet
 from real_scene import RealScene
 
@@ -75,35 +75,6 @@ def psnr_from_mse(mse: float) -> float:
     return float("inf") if mse <= 0.0 else 10.0 * math.log10(1.0 / mse)
 
 
-class LPIPSMetric:
-    """Loads PyTorch and the LPIPS weights on first use, not at import.
-
-    Kept lazy because most runs do not ask for LPIPS, `--help` never needs it, and importing
-    torch costs seconds even when the metric is never called.
-    """
-
-    def __init__(self, net: str):
-        try:
-            import lpips
-            import torch
-        except ImportError as error:
-            raise RuntimeError(
-                "LPIPS needs PyTorch and lpips. Install them, or pass --metrics psnr ssim to "
-                "skip it."
-            ) from error
-        self.torch = torch
-        self.metric = lpips.LPIPS(net=net).eval()
-
-    def __call__(self, prediction: np.ndarray, target: np.ndarray) -> float:
-        def tensor(image):
-            image = np.clip(np.asarray(image, dtype=np.float32), 0.0, 1.0)
-            # LPIPS expects NCHW in [-1, 1].
-            return self.torch.from_numpy(image).permute(2, 0, 1).unsqueeze(0) * 2.0 - 1.0
-
-        with self.torch.inference_mode():
-            return float(self.metric(tensor(prediction), tensor(target)).item())
-
-
 def resolve_device(arch: str) -> str:
     if arch == "cpu":
         return "cpu"
@@ -123,14 +94,17 @@ def build_trainer(args, scene, targets, cameras, focal, scene_radius, device):
     background = (
         np.ones(3, np.float32) if args.background == "white" else np.zeros(3, np.float32)
     )
+    training_options = {"projection": {
+        "max_radius_fraction": args.max_projected_radius_fraction,
+    }}
+    if args.run_config.get("compact_box") is not None:
+        training_options["compact_box"] = args.run_config["compact_box"]
     base = WarpImageTrainer(
         targets, cameras, focal, scene_radius, capacity, capacity, device, 0,
         init_scene=scene, background=background,
         tile_pair_capacity=args.tile_pair_capacity,
         kernel=args.kernel,
-        training_options={"projection": {
-            "max_radius_fraction": args.max_projected_radius_fraction,
-        }},
+        training_options=training_options,
     )
     sh_path = args.sh_npz if args.sh_npz is not None else args.ply.with_suffix(".sh.npz")
     if args.sh_degree == 2 and not sh_path.exists():
@@ -173,6 +147,7 @@ def evaluate(args: argparse.Namespace) -> None:
         if config_path.exists():
             run_config = json.loads(config_path.read_text())
             break
+    args.run_config = run_config
     if args.kernel is None:
         args.kernel = run_config.get("experiment", {}).get("kernel", "gaussian")
     if args.max_projected_radius_fraction is None:
@@ -181,7 +156,8 @@ def evaluate(args: argparse.Namespace) -> None:
     wp.init()
     device = resolve_device(args.arch)
     data = args.data.expanduser().resolve()
-    real_scene = RealScene(data) if (data / "nb-info.json").exists() else None
+    real_scene = (RealScene(data, run_config.get("reporting", {}).get("eval_views", 8))
+                  if (data / "nb-info.json").exists() else None)
     args.background = args.background or ("black" if real_scene is not None else "white")
     if real_scene is None:
         width = args.width if args.width is not None else args.resolution

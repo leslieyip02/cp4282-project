@@ -33,6 +33,10 @@ validation, and test rendering. Synthetic scenes leave the guard disabled.
 This is an exploratory correction motivated by the copied bonsai snapshots;
 the earlier unguarded real-scene runs should be kept separate and all kernels
 must be rerun under the new setting before drawing a comparison.
+Real scenes use `model.long_edge: 390`; the short edge is derived from the
+COLMAP camera aspect ratio and saved in `run_config.json`. All kernels and seeds
+for a scene therefore use identical dimensions, while scenes with different
+native aspect ratios retain their geometry.
 
 ## Implementation and verification
 
@@ -53,6 +57,11 @@ A PLY does not encode the kernel. Keep it with its `run_config.json`, or pass
 `--kernel` explicitly to the evaluator. The measured render time is the median
 of five end-to-end single-view renders plus readback, after one warm-up render; tile
 pairs count projected splat/tile records, not exact splat/pixel evaluations.
+LPIPS is computed once per final test view, outside the render timing loop,
+using the VGG backbone and version 0.1. It is saved beside PSNR and SSIM in
+`test_metrics.csv` and averaged in `test_summary.json`; the analysis pairs only
+LPIPS values produced with the same backbone. Existing final PLYs can be
+backfilled with `scripts/backfill_lpips.py` without retraining.
 
 ## Experimental procedure
 
@@ -69,13 +78,14 @@ pairs count projected splat/tile records, not exact splat/pixel evaluations.
    splat cap fixed within each scene. The cap is a budget, not a guarantee of
    equal actual splat counts.
 3. **Metrics:** Use the final 8,000-step checkpoint for the primary comparison.
-   Evaluate only on held-out test views. Record mean PSNR and SSIM, splat count,
+   Evaluate only on held-out test views. Record mean PSNR, SSIM, and LPIPS (VGG v0.1), splat count,
    training time, mean test-view render time, and tile pairs. Validation curves
    and saved snapshots diagnose convergence. If a validation-selected
    checkpoint becomes the primary endpoint, implement and predeclare that
    selection rule before examining test results.
 4. **Analysis:** Pair each alternative with Gaussian by scene and seed. Report
-   paired PSNR/SSIM deltas and per-scene 95% confidence intervals. Treat the
+   paired PSNR/SSIM/LPIPS deltas and per-scene 95% confidence intervals. Lower
+   LPIPS is better. Treat the
    scene, rather than the individual view, as the unit for claims across
    scenes. Avoid interpreting a confidence interval crossing zero as proof of
    equivalence. Report both quality at equal steps and quality versus render
@@ -93,7 +103,7 @@ they cannot silently replace the unguarded runs.
 ## Final presentation
 
 - A scene-by-kernel table of test PSNR, SSIM, splat count, render time,
-  training time, and tile pairs.
+  LPIPS, training time, and tile pairs.
 - A paired-delta plot with one point per scene/seed and per-scene uncertainty.
 - A quality-versus-render-time plot and validation curves.
 - Matched image crops of edges and thin structures, with references and all

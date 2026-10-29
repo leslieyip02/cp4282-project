@@ -27,7 +27,10 @@ per-view intrinsics from the COLMAP binaries and initializes splats from
 `points3D.bin`; it supports undistorted `PINHOLE` cameras. The same layout works
 for other NerfBaselines Mip-NeRF 360 scenes, such as `counter`.
 
-`config/real.yaml` resizes bonsai to 390 × 260. The loader reserves eight of
+`config/real.yaml` sets a 390-pixel long edge and derives the other dimension
+from each scene's COLMAP camera aspect ratio (390 × 260 for bonsai, approximately
+390 × 253 for a 1297 × 840 garden image). The resolved dimensions are saved in
+each run's `run_config.json`. The loader reserves eight of
 the official training views for validation and uses the official test views
 only for final evaluation. Each run writes its exact split to `split.json`.
 Scores from resized images and fewer training views are not directly comparable

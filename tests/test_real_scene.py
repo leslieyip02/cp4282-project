@@ -17,6 +17,11 @@ from shared.gaussian_set import GaussianSet
 
 
 class RealSceneTests(unittest.TestCase):
+    def test_render_size_preserves_non_bonsai_aspect_ratio(self):
+        scene = object.__new__(RealScene)
+        scene.cameras = {1: (1297, 840, np.ones(4))}
+        self.assertEqual(scene.render_size(390), (390, 253))
+
     def test_renderer_uses_each_views_principal_point(self):
         trainer_module = importlib.import_module("3dgs_trainer")
         scene = GaussianSet(
@@ -72,6 +77,7 @@ class RealSceneTests(unittest.TestCase):
             (root / "test_list.txt").write_text(names[10] + "\n")
 
             scene = RealScene(root, validation_views=2)
+            self.assertEqual(scene.render_size(40), (40, 30))
             self.assertEqual((len(scene.train_names), len(scene.validation_names),
                               len(scene.test_names)), (8, 2, 1))
             self.assertFalse(set(scene.train_names) & set(scene.validation_names))

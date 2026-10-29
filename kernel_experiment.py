@@ -13,7 +13,7 @@ from time import perf_counter
 import numpy as np
 import warp as wp
 
-from image_metrics import ssim_rgb
+from image_metrics import LPIPSMetric, ssim_rgb
 from shared.kernels import NAMES
 from real_scene import RealScene
 
@@ -73,7 +73,8 @@ class ValidationReporter:
 
 
 def _test_evaluation(trainer, data: Path, width: int, height: int, background,
-                     run_dir: Path, training_summary, real_scene=None):
+                     run_dir: Path, training_summary, real_scene=None, lpips_metric=None,
+                     lpips_net="none"):
     if real_scene is None:
         targets, cameras, focal, _, frame_paths = gs.load_views(
             data, width, height, background, manifest_name="transforms_test.json",
@@ -93,25 +94,32 @@ def _test_evaluation(trainer, data: Path, width: int, height: int, background,
         render_seconds = statistics.median(timings)
         prediction = np.clip(prediction, 0.0, 1.0)
         rows.append((frame_path, -10.0 * np.log10(max(float(mse), 1e-12)),
-                     ssim_rgb(prediction, targets[view_id]), render_seconds,
-                     trainer.last_pair_count))
+                     ssim_rgb(prediction, targets[view_id]),
+                     lpips_metric(prediction, targets[view_id]) if lpips_metric else None,
+                     render_seconds, trainer.last_pair_count))
     with (run_dir / "test_metrics.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(("frame", "psnr_db", "ssim", "render_seconds", "tile_pairs"))
+        writer.writerow(("frame", "psnr_db", "ssim", "lpips", "render_seconds", "tile_pairs"))
         writer.writerows(rows)
     summary = {
         "views": len(rows),
         "mean_psnr_db": float(np.mean([row[1] for row in rows])),
         "mean_ssim": float(np.mean([row[2] for row in rows])),
-        "mean_render_seconds": float(np.mean([row[3] for row in rows])),
-        "mean_tile_pairs": float(np.mean([row[4] for row in rows])),
+        "mean_render_seconds": float(np.mean([row[4] for row in rows])),
+        "mean_tile_pairs": float(np.mean([row[5] for row in rows])),
+        "lpips_net": lpips_net,
         "kernel": trainer.kernel,
         "final_gaussians": int(trainer.active.sum()),
         **training_summary,
     }
+    if lpips_metric is not None:
+        summary["mean_lpips"] = float(np.mean([row[3] for row in rows]))
     (run_dir / "test_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    lpips_text = (f", LPIPS ({lpips_net})={summary['mean_lpips']:.4f}"
+                  if lpips_metric is not None else "")
     print(f"Final test: PSNR={summary['mean_psnr_db']:.2f} dB, "
-          f"SSIM={summary['mean_ssim']:.4f}, Gaussians={summary['final_gaussians']:,}",
+          f"SSIM={summary['mean_ssim']:.4f}{lpips_text}, "
+          f"Gaussians={summary['final_gaussians']:,}",
           flush=True)
 
 
@@ -131,12 +139,25 @@ def run(args):
         values["model"]["width"] = args.width
     if args.height is not None:
         values["model"]["height"] = args.height
+    if values["model"]["long_edge"] is not None and (args.width is not None or args.height is not None):
+        if args.width is None or args.height is None:
+            raise ValueError("Override both --width and --height when using model.long_edge.")
+        values["model"]["long_edge"] = None
+    if args.lpips_net is not None:
+        values["reporting"]["lpips_net"] = args.lpips_net
     config.validate()
+    lpips_net = values["reporting"]["lpips_net"]
+    lpips_metric = LPIPSMetric(lpips_net) if lpips_net != "none" else None
 
     kernel = values["experiment"]["kernel"]
     data = (args.data or values["paths"]["data"]).resolve()
     scene = args.scene or data.name
     real_scene = RealScene(data, values["reporting"]["eval_views"]) if (data / "nb-info.json").exists() else None
+    if values["model"]["long_edge"] is not None:
+        if real_scene is None:
+            raise ValueError("model.long_edge is supported only for Mip-NeRF 360 scenes.")
+        values["model"]["width"], values["model"]["height"] = real_scene.render_size(
+            values["model"]["long_edge"])
     init_ply = (
         args.init_ply
         or (values["paths"]["init_ply"] if args.data is None else None)
@@ -213,7 +234,7 @@ def run(args):
         metric_reporter=reporter,
     )
     _test_evaluation(trainer, data, width, height, background, run_dir, training_summary,
-                     real_scene)
+                     real_scene, lpips_metric, lpips_net)
 
 
 def main():
@@ -229,6 +250,8 @@ def main():
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--eval-every", type=int)
+    parser.add_argument("--lpips-net", choices=("vgg", "alex", "squeeze", "none"),
+                        help="LPIPS backbone for final test; default from config (vgg).")
     parser.add_argument("--output-root", type=Path, default=Path(__file__).resolve().parent / "outputs")
     run(parser.parse_args())
 

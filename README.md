@@ -1,20 +1,24 @@
 # Screen-space kernels for 3D Gaussian splatting
 
 This project compares Gaussian, linear radial, and degree-2 polynomial splat footprints under the
-same projected 3D ellipsoids and training budget. It measures held-out PSNR and
-SSIM, training time, rendering time, splat count, and tile work. The full
+same projected 3D ellipsoids and training budget. It measures held-out PSNR,
+SSIM, VGG LPIPS, training time, rendering time, splat count, and tile work. The full
 methodology is in [docs/experiment.md](docs/experiment.md).
 
 Real-scene runs use a projected-footprint limit to exclude near-camera splats
 that can cover most of an image. The earlier unguarded bonsai results need a
 fresh matched rerun before comparing kernels. Use a new `OUTPUT_ROOT` on the
 cluster to preserve the earlier checkpoints.
+The real-scene config targets a 390-pixel long edge and derives the short edge
+from each scene's camera aspect ratio.
 
 ## Local setup
 
-Install `requirements.txt` into `.venv`, then check the renderer:
+Install `requirements.txt` into `.venv` for kernel experiments with
+PSNR, SSIM, and VGG LPIPS on the final test views, then check the renderer:
 
 ```sh
+.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python scripts/check_training_env.py
 WARP_CACHE_PATH=/tmp/warp-cache .venv/bin/python 3dgs_gradient_check_gpu.py --device cpu
 ```
