@@ -1,8 +1,8 @@
-"""Report a longer-training kernel pilot against Gaussian and an earlier budget.
+"""Report one or more kernel scenes from raw run files, optionally versus another budget.
 
 Example:
-    python scripts/report_kernel_pilot.py --scene bonsai \
-        --pilot-root outputs-pilot/kernels --reference-root outputs/kernels
+    python scripts/report_kernels.py --input-root outputs-20k/kernels \
+        --reference-root outputs/kernels --scenes bonsai bicycle counter
 """
 
 from __future__ import annotations
@@ -141,11 +141,11 @@ def metric_pair(a, b, metric):
     return float(av) - float(bv) if av is not None and bv is not None else None
 
 
-def plot_validation(path: Path, pilot, reference, seeds):
+def plot_validation(path: Path, current, reference, seeds):
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), constrained_layout=True)
     for metric, ax in zip(("psnr_db", "ssim"), axes):
         for kernel in KERNELS:
-            for source, linestyle, alpha in ((reference, "--", 0.7), (pilot, "-", 1.0)):
+            for source, linestyle, alpha in ((reference, "--", 0.7), (current, "-", 1.0)):
                 runs = [source.get((kernel, seed)) for seed in seeds]
                 runs = [run for run in runs if run]
                 if not runs:
@@ -156,10 +156,10 @@ def plot_validation(path: Path, pilot, reference, seeds):
                     continue
                 y = [mean(run["validation"][step][metric] for run in runs)
                      for step in common_steps]
-                label = f"{kernel} ({'pilot' if source is pilot else 'earlier'})"
+                label = f"{kernel} ({'current' if source is current else 'earlier'})"
                 ax.plot(common_steps, y, color=COLORS[kernel], linestyle=linestyle,
-                        alpha=alpha, linewidth=2 if source is pilot else 1.5, label=label)
-                if source is pilot:
+                        alpha=alpha, linewidth=2 if source is current else 1.5, label=label)
+                if source is current:
                     for run in runs:
                         steps = sorted(run["validation"])
                         ax.plot(steps, [run["validation"][step][metric] for step in steps],
@@ -167,7 +167,7 @@ def plot_validation(path: Path, pilot, reference, seeds):
         ax.set(xlabel="Training step", ylabel=f"Mean validation {LABELS[metric]}")
         ax.grid(alpha=0.2)
     axes[0].legend(fontsize=8, ncol=2)
-    fig.suptitle("Validation trajectories: thick lines average seeds; faint lines are pilot seeds")
+    fig.suptitle("Validation trajectories: thick lines average seeds; faint lines are current seeds")
     fig.savefig(path, dpi=170)
     plt.close(fig)
 
@@ -219,64 +219,60 @@ def plot_views(path: Path, per_view_rows):
     ax.set_xticks(range(0, len(frames), max(1, len(frames) // 10)))
     ax.grid(axis="y", alpha=0.2)
     ax.legend()
-    fig.suptitle("Per-view differences; shading spans the three seed values")
+    fig.suptitle("Per-view differences; shading spans the selected seeds")
     fig.savefig(path, dpi=170)
     plt.close(fig)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scene", default="bonsai")
-    parser.add_argument("--pilot-root", type=Path, default=Path("outputs-pilot/kernels"))
-    parser.add_argument("--reference-root", type=Path, default=Path("outputs/kernels"))
-    parser.add_argument("--output-dir", type=Path,
-                        default=Path("outputs-pilot/pilot_report"))
-    parser.add_argument("--seeds", nargs="+", type=int, default=[7, 17, 27])
-    args = parser.parse_args()
+def report_scene(args):
     output = args.output_dir / args.scene
     output.mkdir(parents=True, exist_ok=True)
-    pilot = {(kernel, seed): load_run(args.pilot_root, args.scene, kernel, seed)
+    current = {(kernel, seed): load_run(args.input_root, args.scene, kernel, seed)
              for kernel in KERNELS for seed in args.seeds}
     reference = {(kernel, seed): load_run(args.reference_root, args.scene, kernel, seed)
+                 if args.reference_root is not None else None
                  for kernel in KERNELS for seed in args.seeds}
-    missing = [f"{kernel}/seed_{seed}" for (kernel, seed), run in pilot.items() if run is None]
+    missing = [f"{kernel}/seed_{seed}" for (kernel, seed), run in current.items() if run is None]
     if missing:
-        raise ValueError(f"Pilot runs missing: {', '.join(missing)}")
-    exemplar = pilot[("gaussian", args.seeds[0])]
-    pilot_settings = settings(exemplar)
-    pilot_split = exemplar["split"]
-    pilot_steps = exemplar["config"]["training"]["iterations"]
-    pilot_schedule = exemplar["config"]["learning_rates"]["position_max_steps"]
-    pilot_lpips_net = exemplar["summary"].get("lpips_net")
+        raise ValueError(f"Current runs missing: {', '.join(missing)}")
+    exemplar = current[("gaussian", args.seeds[0])]
+    current_settings = settings(exemplar)
+    current_split = exemplar["split"]
+    current_steps = exemplar["config"]["training"]["iterations"]
+    current_schedule = exemplar["config"]["learning_rates"]["position_max_steps"]
+    current_lpips_net = exemplar["summary"].get("lpips_net")
     warnings = []
-    for (kernel, seed), run in pilot.items():
-        if settings(run) != pilot_settings:
-            warnings.append(f"Pilot settings differ: {kernel}/seed_{seed}")
-        if run["split"] != pilot_split:
-            warnings.append(f"Pilot split differs: {kernel}/seed_{seed}")
-        if (run["config"]["training"]["iterations"] != pilot_steps
-                or run["config"]["learning_rates"]["position_max_steps"] != pilot_schedule):
-            warnings.append(f"Pilot training budget or schedule differs: {kernel}/seed_{seed}")
-        if run["summary"].get("lpips_net") != pilot_lpips_net:
-            warnings.append(f"Pilot LPIPS backbone differs: {kernel}/seed_{seed}")
+    for (kernel, seed), run in current.items():
+        if settings(run) != current_settings:
+            warnings.append(f"Current settings differ: {kernel}/seed_{seed}")
+        if run["split"] != current_split:
+            warnings.append(f"Current split differs: {kernel}/seed_{seed}")
+        if (run["config"]["training"]["iterations"] != current_steps
+                or run["config"]["learning_rates"]["position_max_steps"] != current_schedule):
+            warnings.append(f"Current training budget or schedule differs: {kernel}/seed_{seed}")
+        if run["summary"].get("lpips_net") != current_lpips_net:
+            warnings.append(f"Current LPIPS backbone differs: {kernel}/seed_{seed}")
     for (kernel, seed), run in reference.items():
         if run is None:
             continue
-        if settings(run) != pilot_settings:
-            warnings.append(f"Earlier and pilot settings differ: {kernel}/seed_{seed}")
-        if run["split"] != pilot_split:
-            warnings.append(f"Earlier and pilot split differ: {kernel}/seed_{seed}")
+        changed = [key for key, value in current_settings.items()
+                   if settings(run)[key] != value]
+        if changed or run["split"] != current_split:
+            detail = ", ".join(changed + (["split"] if run["split"] != current_split else []))
+            warnings.append(f"Reference excluded from budget comparison: "
+                            f"{kernel}/seed_{seed} differs in {detail}")
+            reference[(kernel, seed)] = None
 
     paired, per_view, budget = [], [], []
     for seed in args.seeds:
-        gaussian = pilot[("gaussian", seed)]
+        gaussian = current[("gaussian", seed)]
         for kernel in KERNELS:
-            run = pilot[(kernel, seed)]
+            run = current[(kernel, seed)]
             old = reference[(kernel, seed)]
             if old:
                 budget.append(dict(kernel=kernel, seed=seed,
                                    old_steps=old["config"]["training"]["iterations"],
-                                   pilot_steps=run["config"]["training"]["iterations"],
+                                   current_steps=run["config"]["training"]["iterations"],
                                    **{f"delta_{metric}": metric_pair(run, old, metric)
                                       for metric in METRICS}))
             if kernel == "gaussian":
@@ -294,6 +290,8 @@ def main():
                                gaussian_peak_train_gpu_memory_mib=gaussian["summary"].get(
                                    "peak_train_gpu_memory_mib"),
                                peak_test_gpu_memory_mib=run["summary"].get("peak_test_gpu_memory_mib"),
+                               gaussian_peak_test_gpu_memory_mib=gaussian["summary"].get(
+                                   "peak_test_gpu_memory_mib"),
                                gpu_name=run["summary"].get("gpu_name"),
                                gaussian_gpu_name=gaussian["summary"].get("gpu_name")))
             for frame in sorted(run["views"]):
@@ -312,28 +310,32 @@ def main():
               ["kernel", "seed", "delta_psnr_db", "delta_ssim", "delta_lpips",
                "render_ms", "gaussian_render_ms", "tile_pairs", "gaussian_tile_pairs",
                "peak_train_gpu_memory_mib", "gaussian_peak_train_gpu_memory_mib",
-               "peak_test_gpu_memory_mib", "gpu_name", "gaussian_gpu_name"], paired)
+               "peak_test_gpu_memory_mib", "gaussian_peak_test_gpu_memory_mib",
+               "gpu_name", "gaussian_gpu_name"], paired)
     write_csv(output / "per_view_deltas.csv",
               ["kernel", "seed", "frame", "delta_psnr_db", "delta_ssim", "delta_lpips"], per_view)
     write_csv(output / "budget_changes.csv",
-              ["kernel", "seed", "old_steps", "pilot_steps", "delta_psnr_db",
+              ["kernel", "seed", "old_steps", "current_steps", "delta_psnr_db",
                "delta_ssim", "delta_lpips"], budget)
-    plot_validation(output / "validation_curves.png", pilot, reference, args.seeds)
+    plot_validation(output / "validation_curves.png", current, reference, args.seeds)
     plot_paired(output / "paired_test_deltas.png", paired)
     plot_views(output / "per_view_psnr.png", per_view)
 
-    lines = [f"# {args.scene} kernel pilot", "",
-             f"Pilot: {args.pilot_root / args.scene}; earlier runs: {args.reference_root / args.scene}.",
+    reference_text = (f"; reference: {args.reference_root / args.scene}"
+                      if args.reference_root is not None else "")
+    lines = [f"# {args.scene} kernel report", "",
+             f"Input: {args.input_root / args.scene}{reference_text}.",
              "", "## Coverage and comparability", "",
-             f"All {len(pilot)} pilot kernel/seed runs completed. "
-             f"Pilot budget: {exemplar['config']['training']['iterations']:,} steps; "
+             f"All {len(current)} kernel/seed runs completed. "
+             f"Training budget: {exemplar['config']['training']['iterations']:,} steps; "
              f"position learning-rate schedule: {exemplar['config']['learning_rates']['position_max_steps']:,} steps. "
-             f"Resolution: {pilot_settings['width']}×{pilot_settings['height']}; "
-             f"capacity: {pilot_settings['capacity']:,} splats.", ""]
+             f"Resolution: {current_settings['width']}×{current_settings['height']}; "
+             f"capacity: {current_settings['capacity']:,} splats.", ""]
     if warnings:
         lines += ["**Comparability warnings:**", ""] + [f"- {warning}" for warning in warnings] + [""]
     else:
-        lines += ["Kernel/seed settings and splits match within the pilot and against available earlier runs.", ""]
+        lines += ["Kernel/seed settings and splits match within this input"
+                  + (" and against available reference runs." if args.reference_root else "."), ""]
 
     lines += ["## At a glance", ""]
     for kernel in ("linear", "polynomial"):
@@ -346,10 +348,10 @@ def main():
     lines += ["", "Absolute final-test values:", "",
               table(["Kernel", "Seed", "PSNR dB", "SSIM", "LPIPS"], [
                   [kernel, seed,
-                   f"{pilot[(kernel, seed)]['summary']['mean_psnr_db']:.2f}",
-                   f"{pilot[(kernel, seed)]['summary']['mean_ssim']:.4f}",
-                   (f"{pilot[(kernel, seed)]['summary']['mean_lpips']:.4f}"
-                    if pilot[(kernel, seed)]["summary"].get("mean_lpips") is not None else "—")]
+                   f"{current[(kernel, seed)]['summary']['mean_psnr_db']:.2f}",
+                   f"{current[(kernel, seed)]['summary']['mean_ssim']:.4f}",
+                   (f"{current[(kernel, seed)]['summary']['mean_lpips']:.4f}"
+                    if current[(kernel, seed)]["summary"].get("mean_lpips") is not None else "—")]
                   for seed in args.seeds for kernel in KERNELS]), ""]
 
     lines += ["## Paired final-test differences from Gaussian", "",
@@ -359,7 +361,8 @@ def main():
                   [row["kernel"], row["seed"], fmt(row["delta_psnr_db"]),
                    fmt(row["delta_ssim"], 4), fmt(row["delta_lpips"], 4)]
                   for row in paired]), "",
-              "Across-seed means and 95% t intervals (three seeds give wide intervals):", ""]
+              f"Across-seed means and 95% t intervals ({len(args.seeds)} selected seeds; "
+              "small samples give wide intervals):", ""]
     aggregate = []
     for kernel in ("linear", "polynomial"):
         rows = [row for row in paired if row["kernel"] == kernel]
@@ -406,12 +409,12 @@ def main():
 
     lines += ["## Validation convergence", "",
               "The validation plot averages the same reserved views at each checkpoint. "
-              "Faint lines show individual pilot seeds; dashed lines show earlier runs.", "",
+              "Faint lines show individual seeds; dashed lines show reference runs when supplied.", "",
               "![Validation curves](validation_curves.png)", ""]
     convergence = []
     for kernel in KERNELS:
         for seed in args.seeds:
-            curve = pilot[(kernel, seed)]["validation"]
+            curve = current[(kernel, seed)]["validation"]
             last = max(curve)
             peak = max(curve, key=lambda step: curve[step]["psnr_db"])
             earlier = [step for step in curve if step <= last - 2000]
@@ -429,13 +432,15 @@ def main():
                   "The position learning-rate schedule changed with the step budget, so "
                   "these differences measure the combined budget and schedule change.", "",
                   table(["Kernel", "Seed", "Steps", "ΔPSNR dB", "ΔSSIM", "ΔLPIPS"], [
-                      [row["kernel"], row["seed"], f"{row['old_steps']:,}→{row['pilot_steps']:,}",
+                      [row["kernel"], row["seed"], f"{row['old_steps']:,}→{row['current_steps']:,}",
                        fmt(row["delta_psnr_db"]), fmt(row["delta_ssim"], 4),
                        fmt(row["delta_lpips"], 4)] for row in budget]), ""]
 
     cost = []
     for kernel in ("linear", "polynomial"):
         rows = [row for row in paired if row["kernel"] == kernel]
+        hardware_rows = [row for row in rows if row["gpu_name"] is not None
+                         and row["gpu_name"] == row["gaussian_gpu_name"]]
         memory_rows = [row for row in rows if row["peak_train_gpu_memory_mib"] is not None
                        and row["gaussian_peak_train_gpu_memory_mib"] is not None
                        and row["gpu_name"] is not None
@@ -443,12 +448,15 @@ def main():
         memory_delta = (mean(row["peak_train_gpu_memory_mib"] /
                              row["gaussian_peak_train_gpu_memory_mib"] - 1
                              for row in memory_rows) * 100 if memory_rows else None)
-        cost.append([kernel,
-                     f"{mean(row['render_ms'] / row['gaussian_render_ms'] - 1 for row in rows) * 100:+.1f}%",
+        render_change = mean(row["render_ms"] / row["gaussian_render_ms"] - 1
+                             for row in hardware_rows)
+        train_change = mean(current[(kernel, row["seed"])]["summary"]["training_elapsed_seconds"] /
+                            current[("gaussian", row["seed"])]["summary"]["training_elapsed_seconds"] - 1
+                            for row in hardware_rows)
+        cost.append([kernel, f"{len(hardware_rows)}/{len(rows)}",
+                     f"{render_change * 100:+.1f}%" if render_change is not None else "—",
                      f"{mean(row['tile_pairs'] / row['gaussian_tile_pairs'] - 1 for row in rows) * 100:+.1f}%",
-                     f"{mean(pilot[(kernel, seed)]['summary']['training_elapsed_seconds'] /
-                                  pilot[('gaussian', seed)]['summary']['training_elapsed_seconds'] - 1
-                                  for seed in args.seeds) * 100:+.1f}%",
+                     f"{train_change * 100:+.1f}%" if train_change is not None else "—",
                      (f"{mean(row['peak_train_gpu_memory_mib'] for row in memory_rows):.0f}"
                       if memory_rows else "—"),
                      (f"{mean(row['peak_test_gpu_memory_mib'] for row in memory_rows if row['peak_test_gpu_memory_mib'] is not None):.0f}"
@@ -457,13 +465,13 @@ def main():
     lines += ["## Rendering cost", "",
               "Paired mean relative to Gaussian at the same seed. GPU memory is a "
               "250 ms sampled per-process peak and includes CUDA context and all live allocations:", "",
-              table(["Kernel", "Render time", "Tile pairs", "Training time",
+              table(["Kernel", "GPU-matched pairs", "Render time", "Tile pairs", "Training time",
                      "Train peak MiB", "Test peak MiB", "Train peak change"], cost), "",
               "## Reading the result", "",
               "Look first for agreement across seeds and across PSNR, SSIM, and LPIPS. "
               "Use the view counts to see whether a mean is driven by a few cameras. "
               "Use the final validation slope and the best-checkpoint gap to assess whether "
-              "the fixed-step endpoint is stable. Treat the three-seed intervals as exploratory; "
+              "the fixed-step endpoint is stable. Treat small-seed intervals as exploratory; "
               "this single scene cannot establish a result across real scenes.", "",
               "Data: [paired test deltas](paired_test_deltas.csv), "
               "[per-view deltas](per_view_deltas.csv), "
@@ -473,6 +481,125 @@ def main():
     print(f"Wrote {report} and three plots")
     if warnings:
         print(f"{len(warnings)} comparability warning(s); read the report before interpreting deltas")
+    return paired
+
+
+def write_overview(output: Path, scene_rows: dict[str, list[dict]]):
+    rows = []
+    for scene, paired in sorted(scene_rows.items()):
+        for kernel in ("linear", "polynomial"):
+            group = [row for row in paired if row["kernel"] == kernel]
+            hardware = [row for row in group if row["gpu_name"] is not None
+                        and row["gpu_name"] == row["gaussian_gpu_name"]]
+            comparable = [row for row in group
+                          if row["peak_train_gpu_memory_mib"] is not None
+                          and row["gaussian_peak_train_gpu_memory_mib"] is not None
+                          and row["gpu_name"] is not None
+                          and row["gpu_name"] == row["gaussian_gpu_name"]]
+            rows.append(dict(
+                scene=scene, kernel=kernel, seeds=len(group),
+                mean_delta_psnr_db=mean(row["delta_psnr_db"] for row in group),
+                mean_delta_ssim=mean(row["delta_ssim"] for row in group),
+                mean_delta_lpips=mean(row["delta_lpips"] for row in group
+                                      if row["delta_lpips"] is not None),
+                psnr_positive_seeds=sum(row["delta_psnr_db"] > 0 for row in group),
+                ssim_positive_seeds=sum(row["delta_ssim"] > 0 for row in group),
+                lpips_better_seeds=sum(row["delta_lpips"] < 0 for row in group
+                                       if row["delta_lpips"] is not None),
+                memory_matched_seeds=len(comparable),
+                mean_delta_train_gpu_memory_mib=mean(
+                    row["peak_train_gpu_memory_mib"]
+                    - row["gaussian_peak_train_gpu_memory_mib"] for row in comparable),
+                mean_delta_test_gpu_memory_mib=mean(
+                    row["peak_test_gpu_memory_mib"]
+                    - row["gaussian_peak_test_gpu_memory_mib"] for row in comparable
+                    if row["peak_test_gpu_memory_mib"] is not None
+                    and row["gaussian_peak_test_gpu_memory_mib"] is not None),
+                mean_render_time_change_pct=100 * mean(
+                    row["render_ms"] / row["gaussian_render_ms"] - 1 for row in hardware)
+                    if hardware else None,
+            ))
+    fields = list(rows[0])
+    write_csv(output / "overview.csv", fields, rows)
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, max(3.5, 0.55 * len(scene_rows) + 1.8)),
+                             constrained_layout=True)
+    scenes = sorted(scene_rows)
+    for metric, ax in zip(METRICS, axes):
+        for kernel, offset in (("linear", -0.12), ("polynomial", 0.12)):
+            group = [row for row in rows if row["kernel"] == kernel
+                     and row[f"mean_delta_{metric}"] is not None]
+            positions = [scenes.index(row["scene"]) + offset for row in group]
+            ax.scatter([row[f"mean_delta_{metric}"] for row in group], positions,
+                       color=COLORS[kernel], s=48, label=kernel)
+        ax.axvline(0, color="black", linewidth=0.8)
+        ax.set(yticks=range(len(scenes)), yticklabels=scenes,
+               xlabel=f"Mean paired test {LABELS[metric]} − Gaussian")
+        ax.grid(axis="x", alpha=0.2)
+    axes[0].legend(fontsize=8)
+    fig.suptitle("Scene means across paired seeds; each scene is one unit")
+    fig.savefig(output / "scene_deltas.png", dpi=170)
+    plt.close(fig)
+
+    report = ["# Kernel report across scenes", "",
+              "Each point is a scene's mean across paired seeds. Positive PSNR/SSIM "
+              f"and negative LPIPS favor the alternative. {len(scene_rows)} scenes are exploratory; "
+              "test views are not independent scene replicates.", "",
+              "![Scene-level test differences](scene_deltas.png)", "",
+              table(["Scene", "Kernel", "ΔPSNR dB", "ΔSSIM", "ΔLPIPS",
+                     "PSNR wins", "LPIPS wins", "GPU-matched seeds", "Δtrain GPU MiB"], [
+                  [row["scene"], row["kernel"], fmt(row["mean_delta_psnr_db"]),
+                   fmt(row["mean_delta_ssim"], 4), fmt(row["mean_delta_lpips"], 4),
+                   f"{row['psnr_positive_seeds']}/{row['seeds']}",
+                   f"{row['lpips_better_seeds']}/{row['seeds']}",
+                   f"{row['memory_matched_seeds']}/{row['seeds']}",
+                   fmt(row["mean_delta_train_gpu_memory_mib"], 1)] for row in rows]), "",
+              "Memory differences use only pairs trained on the same GPU model. "
+              "Render and training time also depend on GPU model, so compare them "
+              "within matched hardware before drawing cost conclusions.", "",
+              "## Scene details", ""]
+    report += [f"- [{scene}]({scene}/report.md)" for scene in scenes]
+    report += ["", "[Machine-readable overview](overview.csv).", ""]
+    (output / "overview.md").write_text("\n".join(report))
+    print(f"Wrote {output / 'overview.md'}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input-root", type=Path, required=True,
+                        help="Directory containing <scene>/<kernel>/seed_<n>/ runs")
+    parser.add_argument("--reference-root", type=Path,
+                        help="Optional earlier budget with the same layout")
+    parser.add_argument("--output-dir", type=Path,
+                        help="Defaults to a reports/ directory beside input-root")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--scene", help="Report one scene")
+    selection.add_argument("--scenes", nargs="+", help="Report selected scenes")
+    parser.add_argument("--seeds", nargs="+", type=int,
+                        help="Defaults to all Gaussian seed directories in each scene")
+    args = parser.parse_args()
+    if not args.input_root.is_dir():
+        parser.error(f"Input root does not exist: {args.input_root}")
+    args.output_dir = args.output_dir or args.input_root.parent / "reports"
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    scenes = args.scenes or ([args.scene] if args.scene else sorted(
+        path.name for path in args.input_root.iterdir() if path.is_dir()))
+    if not scenes:
+        parser.error("No scenes found")
+    selected_seeds = args.seeds
+    scene_rows = {}
+    for scene in scenes:
+        seed_root = args.input_root / scene / "gaussian"
+        if not seed_root.is_dir():
+            raise ValueError(f"No Gaussian runs for {scene}")
+        args.scene = scene
+        args.seeds = selected_seeds or sorted(
+            int(path.name.removeprefix("seed_")) for path in seed_root.glob("seed_*")
+            if path.is_dir() and path.name.removeprefix("seed_").isdigit())
+        if not args.seeds:
+            raise ValueError(f"No seeds found for {scene}")
+        scene_rows[scene] = report_scene(args)
+    write_overview(args.output_dir, scene_rows)
 
 
 if __name__ == "__main__":

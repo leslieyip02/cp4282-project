@@ -54,15 +54,18 @@ Set `OUTPUT_ROOT` to move outputs, or
 `DATASET_NAME` when two dataset directories have the same final name. The
 scripts accept `PYTHON_BIN` to use a different existing interpreter.
 
-For a longer-training pilot copied into `outputs-pilot/`, generate a paired
-report against the earlier runs with:
+Generate a report for any copied kernel matrix. The script discovers scenes and
+seeds under `--input-root`; pass `--scene` or `--scenes` to select a subset. An
+optional reference root adds a budget comparison for matching configurations:
 
 ```sh
-.venv/bin/python scripts/report_kernel_pilot.py --scene bonsai \
-  --pilot-root outputs-pilot/kernels --reference-root outputs/kernels
+.venv/bin/python scripts/report_kernels.py --input-root outputs-20k/kernels \
+  --reference-root outputs/kernels
 ```
 
-The report and plots are written to `outputs-pilot/pilot_report/bonsai/`.
+The overview is written to `outputs-20k/reports/overview.md`, with per-scene
+reports and plots in `outputs-20k/reports/<scene>/`. The script excludes
+reference runs from budget comparisons when settings or held-out splits differ.
 
 For the 20,000-step real-scene matrix, use `config/real_20k.yaml` and a fresh
 output root. For example:
