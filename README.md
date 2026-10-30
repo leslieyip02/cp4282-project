@@ -3,12 +3,14 @@
 This project compares Gaussian, linear radial, and degree-2 polynomial splat footprints under the
 same projected 3D ellipsoids and training budget. It measures held-out PSNR,
 SSIM, VGG LPIPS, training time, rendering time, splat count, and tile work. The full
-methodology is in [docs/experiment.md](docs/experiment.md).
+methodology is in [docs/methodology.md](docs/methodology.md).
+The [experiment catalogue](docs/experiments.md) records the completed matrices,
+their actual saved step budgets, and the repeatable train, render, and site workflows.
 
 Real-scene runs use a projected-footprint limit to exclude near-camera splats
-that can cover most of an image. The earlier unguarded bonsai results need a
-fresh matched rerun before comparing kernels. Use a new `OUTPUT_ROOT` on the
-cluster to preserve the earlier checkpoints.
+that can cover most of an image. The current 20k real-scene matrix is in
+`outputs-20k/`; older budgets are retained separately. Use a new `OUTPUT_ROOT`
+for any capacity follow-up so its checkpoints remain distinct.
 The real-scene config targets a 390-pixel long edge and derives the short edge
 from each scene's camera aspect ratio.
 

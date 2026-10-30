@@ -1,4 +1,8 @@
-# Kernel-shape experiment
+# Kernel-shape methodology
+
+This file records the experimental design. The [run catalogue](experiments.md)
+records which matrices were actually completed, including the 16k counter
+runs and the current 20k real-scene matrix.
 
 ## Question and scope
 

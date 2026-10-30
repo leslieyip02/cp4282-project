@@ -105,6 +105,22 @@ opacity is the sigmoid of the stored logit, and the displayed opacity share
 counts splats with opacity at least 0.5. These are scene-level diagnostics,
 not projected pixel footprint measurements.
 
+For several scenes, submit one GPU render array per scene. This needs
+`data/<scene>/` and all completed snapshot PLYs on the cluster:
+
+```sh
+export OUTPUT_ROOT="$PWD/outputs-20k"
+mkdir -p logs
+sbatch scripts/slurm_render_views.sh data/bicycle
+sbatch scripts/slurm_render_views.sh data/bonsai
+sbatch scripts/slurm_render_views.sh data/counter
+```
+
+The Slurm script only renders views. Copy `outputs-20k/view_renders/` back
+after the arrays finish, then run `build_kernel_site.py` locally as above.
+The complete matrix catalogue and follow-up design are in
+[experiments.md](experiments.md).
+
 For the 20,000-step real-scene matrix, use `config/real_20k.yaml` and a fresh
 output root. For example:
 

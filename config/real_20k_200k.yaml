@@ -1,0 +1,31 @@
+# Capacity pilot: identical to real_20k.yaml except for the splat cap.
+paths:
+  data: ../data/bonsai
+  output: ../outputs/default.png
+  init_ply: null
+runtime:
+  arch: gpu
+  seed: 7
+model:
+  long_edge: 390
+  capacity: 200000
+  background: black
+projection:
+  max_radius_fraction: 0.25
+training:
+  iterations: 20000
+learning_rates:
+  position_max_steps: 20000
+densification:
+  interval: 100
+  fraction: 0.2
+convergence:
+  enabled: false
+reporting:
+  eval_views: 8
+  eval_every: 500
+  lpips_net: vgg
+  snapshot_every: 2000
+  save_ply: true
+experiment:
+  kernel: gaussian
