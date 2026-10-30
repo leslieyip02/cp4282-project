@@ -62,6 +62,13 @@ using the VGG backbone and version 0.1. It is saved beside PSNR and SSIM in
 `test_metrics.csv` and averaged in `test_summary.json`; the analysis pairs only
 LPIPS values produced with the same backbone. Existing final PLYs can be
 backfilled with `scripts/backfill_lpips.py` without retraining.
+New GPU runs also record `peak_train_gpu_memory_mib` and
+`peak_test_gpu_memory_mib` in `test_summary.json`. These are per-process NVML
+framebuffer-memory peaks sampled every 250 ms. Training sampling includes
+trainer setup, validation, and snapshots; test sampling includes final test
+rendering. The figures include the CUDA context and all live GPU allocations,
+and can miss shorter transients. Compare them only on the same GPU model and
+with the same image and splat budgets. Old runs have no memory measurement.
 
 ## Experimental procedure
 
@@ -92,6 +99,12 @@ backfilled with `scripts/backfill_lpips.py` without retraining.
    time, since the kernels may perform different amounts of work. Freeze the
    degree at 2 for this matrix; a degree sweep would be a separate study with
    validation-based selection and fresh test evaluation.
+5. **Longer-budget real-scene follow-up:** Use `config/real_20k.yaml` for all nine
+   Mip-NeRF 360 scenes, all three kernels, and paired seeds 7, 17, and 27.
+   Both training iterations and the position learning-rate schedule end at
+   20,000 steps. Save to a new output root and analyze it separately from the
+   8,000- and 16,000-step runs. This changes the schedule as well as the step
+   count; it is a budget comparison, not an isolated extra-steps effect.
 
 Run `scripts/run_kernel_matrix.py --list` for array indices. Outputs are in
 `outputs/kernels/<scene>/<kernel>/seed_<seed>/`. `analyze_kernels.py` writes
@@ -103,7 +116,7 @@ they cannot silently replace the unguarded runs.
 ## Final presentation
 
 - A scene-by-kernel table of test PSNR, SSIM, splat count, render time,
-  LPIPS, training time, and tile pairs.
+  LPIPS, training time, tile pairs, and sampled peak GPU memory.
 - A paired-delta plot with one point per scene/seed and per-scene uncertainty.
 - A quality-versus-render-time plot and validation curves.
 - Matched image crops of edges and thin structures, with references and all

@@ -30,6 +30,14 @@ class FakeTrainer:
         return np.full((16, 16, 3), value, np.float32), value * value
 
 
+class FakeMemory:
+    enabled = True
+    peak_mib = 384.0
+
+    def sample(self):
+        pass
+
+
 class TestFinalMetrics(unittest.TestCase):
     def test_lpips_is_written_per_view_and_in_summary(self):
         targets = np.zeros((2, 16, 16, 3), np.float32)
@@ -43,6 +51,7 @@ class TestFinalMetrics(unittest.TestCase):
                 {"completed_iterations": 2},
                 lpips_metric=lambda prediction, target: float(np.mean(prediction - target)),
                 lpips_net="vgg",
+                gpu_memory_monitor=FakeMemory(),
             )
             with (run_dir / "test_metrics.csv").open(newline="") as stream:
                 rows = list(csv.DictReader(stream))
@@ -51,6 +60,7 @@ class TestFinalMetrics(unittest.TestCase):
             self.assertAlmostEqual(summary["mean_lpips"], 0.375)
             self.assertEqual(summary["lpips_net"], "vgg")
             self.assertEqual(summary["final_gaussians"], 2)
+            self.assertEqual(summary["peak_test_gpu_memory_mib"], 384.0)
 
     def test_backfill_updates_existing_metrics_without_training(self):
         with TemporaryDirectory() as directory:
@@ -98,6 +108,9 @@ class TestFinalMetrics(unittest.TestCase):
                     "lpips_net": "vgg", "mean_render_seconds": 0.01,
                     "mean_tile_pairs": 10, "training_elapsed_seconds": 1,
                     "final_gaussians": 2,
+                    "gpu_name": "Fake GPU",
+                    "peak_train_gpu_memory_mib": 350 if kernel == "polynomial" else 300,
+                    "peak_test_gpu_memory_mib": 420 if kernel == "polynomial" else 400,
                 }))
                 (run / "validation_metrics.csv").write_text(
                     "iteration,psnr_db,ssim\n2,20,0.5\n"
@@ -112,6 +125,7 @@ class TestFinalMetrics(unittest.TestCase):
             polynomial = next(row for row in rows if row["kernel"] == "polynomial")
             self.assertAlmostEqual(float(polynomial["delta_lpips"]), -0.1)
             self.assertEqual(polynomial["lpips_net"], "vgg")
+            self.assertEqual(float(polynomial["delta_peak_train_gpu_memory_mib"]), 50)
 
 
 if __name__ == "__main__":

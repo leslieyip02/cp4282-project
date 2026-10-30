@@ -3,7 +3,9 @@ pillow>=10.0
 plyfile>=1.0
 pyyaml>=6.0
 scipy>=1.11
+matplotlib>=3.8
 warp-lang==1.17.0
 torch
 torchvision
 lpips==0.1.4
+nvidia-ml-py

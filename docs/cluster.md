@@ -53,3 +53,27 @@ Pass a modified YAML as the second argument to the training scripts.
 Set `OUTPUT_ROOT` to move outputs, or
 `DATASET_NAME` when two dataset directories have the same final name. The
 scripts accept `PYTHON_BIN` to use a different existing interpreter.
+
+For a longer-training pilot copied into `outputs-pilot/`, generate a paired
+report against the earlier runs with:
+
+```sh
+.venv/bin/python scripts/report_kernel_pilot.py --scene bonsai \
+  --pilot-root outputs-pilot/kernels --reference-root outputs/kernels
+```
+
+The report and plots are written to `outputs-pilot/pilot_report/bonsai/`.
+
+For the 20,000-step real-scene matrix, use `config/real_20k.yaml` and a fresh
+output root. For example:
+
+```sh
+OUTPUT_ROOT="$PWD/outputs-20k" sbatch scripts/slurm_train_real.sh data/bonsai config/real_20k.yaml
+```
+
+Repeat for each real scene. The same array indexes cover all three kernels and
+seeds 7, 17, and 27. Analyze the matrix with `--input-root outputs-20k/kernels`
+and `--output-dir outputs-20k/kernel_analysis`. The new runs record per-process
+sampled peak GPU memory during training and final test evaluation. Check that
+the Slurm environment can import `pynvml` and query NVML before submitting;
+`scripts/check_training_env.py --gpu` performs this check.

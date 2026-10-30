@@ -30,6 +30,20 @@ def main() -> None:
     import warp as wp
     print(f"Warp version: {wp.__version__}", flush=True)
     if args.gpu:
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            try:
+                gpu_count = pynvml.nvmlDeviceGetCount()
+                if gpu_count:
+                    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                    pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
+            finally:
+                pynvml.nvmlShutdown()
+            if gpu_count < 1:
+                raise RuntimeError("NVML found no NVIDIA GPUs")
+        except Exception as error:
+            raise SystemExit(f"GPU memory monitoring requires working nvidia-ml-py/NVML: {error}") from error
         print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')}", flush=True)
         wp.init()
         if not wp.is_cuda_available():

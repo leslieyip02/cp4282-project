@@ -35,6 +35,11 @@ def mean_ci95(values):
     return mean, low, high
 
 
+def mean_optional(values):
+    present = [value for value in values if value is not None]
+    return statistics.mean(present) if present else None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root", type=Path, default=Path("outputs/kernels"))
@@ -91,6 +96,11 @@ def main():
                             and baseline.get("mean_lpips") is not None
                             and lpips_net is not None
                             and lpips_net == baseline_lpips_net)
+        gpu_name = result.get("gpu_name")
+        comparable_memory = (result.get("peak_train_gpu_memory_mib") is not None
+                             and baseline.get("peak_train_gpu_memory_mib") is not None
+                             and gpu_name is not None
+                             and gpu_name == baseline.get("gpu_name"))
         paired.append(dict(
             scene=scene, kernel=kernel, seed=seed,
             max_radius_fraction=radius_fraction,
@@ -106,11 +116,25 @@ def main():
             tile_pairs=result["mean_tile_pairs"],
             training_seconds=result["training_elapsed_seconds"],
             final_splats=result["final_gaussians"],
+            peak_train_gpu_memory_mib=result.get("peak_train_gpu_memory_mib"),
+            peak_test_gpu_memory_mib=result.get("peak_test_gpu_memory_mib"),
+            gpu_name=gpu_name,
+            memory_comparable_to_gaussian=comparable_memory,
+            delta_peak_train_gpu_memory_mib=(
+                result["peak_train_gpu_memory_mib"] - baseline["peak_train_gpu_memory_mib"]
+                if comparable_memory else None),
+            delta_peak_test_gpu_memory_mib=(
+                result["peak_test_gpu_memory_mib"] - baseline["peak_test_gpu_memory_mib"]
+                if comparable_memory and result.get("peak_test_gpu_memory_mib") is not None
+                and baseline.get("peak_test_gpu_memory_mib") is not None else None),
         ))
     write_csv(args.output_dir / "paired_runs.csv", (
         "scene", "kernel", "seed", "max_radius_fraction", "test_psnr_db", "delta_psnr_db", "test_ssim",
         "delta_ssim", "lpips_net", "test_lpips", "delta_lpips", "render_ms",
         "tile_pairs", "training_seconds", "final_splats",
+        "peak_train_gpu_memory_mib", "peak_test_gpu_memory_mib", "gpu_name",
+        "memory_comparable_to_gaussian", "delta_peak_train_gpu_memory_mib",
+        "delta_peak_test_gpu_memory_mib",
     ), paired)
 
     grouped = defaultdict(list)
@@ -141,6 +165,17 @@ def main():
             mean_tile_pairs=statistics.mean(r["tile_pairs"] for r in rows),
             mean_training_seconds=statistics.mean(r["training_seconds"] for r in rows),
             mean_final_splats=statistics.mean(r["final_splats"] for r in rows),
+            memory_seeds=sum(r["memory_comparable_to_gaussian"] for r in rows),
+            mean_peak_train_gpu_memory_mib=mean_optional(
+                r["peak_train_gpu_memory_mib"] for r in rows
+                if r["memory_comparable_to_gaussian"]),
+            mean_peak_test_gpu_memory_mib=mean_optional(
+                r["peak_test_gpu_memory_mib"] for r in rows
+                if r["memory_comparable_to_gaussian"]),
+            mean_delta_peak_train_gpu_memory_mib=mean_optional(
+                r["delta_peak_train_gpu_memory_mib"] for r in rows),
+            mean_delta_peak_test_gpu_memory_mib=mean_optional(
+                r["delta_peak_test_gpu_memory_mib"] for r in rows),
         ))
     write_csv(args.output_dir / "kernel_summary.csv", (
         "scene", "kernel", "max_radius_fraction", "seeds", "mean_delta_psnr_db", "ci95_low_psnr_db",
@@ -148,6 +183,8 @@ def main():
         "mean_test_lpips", "mean_delta_lpips", "ci95_low_lpips", "ci95_high_lpips",
         "mean_render_ms",
         "mean_tile_pairs", "mean_training_seconds", "mean_final_splats",
+        "memory_seeds", "mean_peak_train_gpu_memory_mib", "mean_peak_test_gpu_memory_mib",
+        "mean_delta_peak_train_gpu_memory_mib", "mean_delta_peak_test_gpu_memory_mib",
     ), summaries)
 
     curve_rows = []

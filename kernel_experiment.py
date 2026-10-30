@@ -13,6 +13,7 @@ from time import perf_counter
 import numpy as np
 import warp as wp
 
+from gpu_memory import GPUMemoryMonitor
 from image_metrics import LPIPSMetric, ssim_rgb
 from shared.kernels import NAMES
 from real_scene import RealScene
@@ -74,7 +75,7 @@ class ValidationReporter:
 
 def _test_evaluation(trainer, data: Path, width: int, height: int, background,
                      run_dir: Path, training_summary, real_scene=None, lpips_metric=None,
-                     lpips_net="none"):
+                     lpips_net="none", gpu_memory_monitor=None):
     if real_scene is None:
         targets, cameras, focal, _, frame_paths = gs.load_views(
             data, width, height, background, manifest_name="transforms_test.json",
@@ -114,6 +115,11 @@ def _test_evaluation(trainer, data: Path, width: int, height: int, background,
     }
     if lpips_metric is not None:
         summary["mean_lpips"] = float(np.mean([row[3] for row in rows]))
+    if gpu_memory_monitor is not None:
+        gpu_memory_monitor.sample()
+        summary["peak_test_gpu_memory_mib"] = gpu_memory_monitor.peak_mib
+        if gpu_memory_monitor.enabled and summary["peak_test_gpu_memory_mib"] is None:
+            raise RuntimeError("NVML did not report GPU memory for the test phase")
     (run_dir / "test_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     lpips_text = (f", LPIPS ({lpips_net})={summary['mean_lpips']:.4f}"
                   if lpips_metric is not None else "")
@@ -212,29 +218,39 @@ def run(args):
         }, indent=2) + "\n")
     if len(initial.means) > model["capacity"]:
         raise ValueError("Initial point cloud exceeds model.capacity")
-    trainer = gs.WarpImageTrainer(
-        full_targets, full_cameras, focal, model["scene_radius"] or (
-            real_scene.scene_radius if real_scene is not None else distance * 0.35
-        ),
-        model["capacity"], model["initial_splats"], device, values["runtime"]["seed"],
-        init_scene=initial, background=background,
-        learning_rates=values["learning_rates"],
-        tile_pair_capacity=model["tile_pair_capacity"],
-        training_options={key: values[key] for key in
-                          ("compact_box", "projection", "multiview_adc", "sparse")},
-        kernel=kernel,
-    )
-    reporter = ValidationReporter(run_dir / "validation_metrics.csv")
-    (run_dir / "snapshots").mkdir(exist_ok=True)
-    training_summary = gs.run_training(
-        trainer, config, training_targets, eval_ids,
-        run_dir / "snapshots", run_dir / "final.png",
-        description=f"{scene}/{kernel}/seed_{values['runtime']['seed']}",
-        held_out_frame_ids=heldout_ids,
-        metric_reporter=reporter,
-    )
-    _test_evaluation(trainer, data, width, height, background, run_dir, training_summary,
-                     real_scene, lpips_metric, lpips_net)
+    with GPUMemoryMonitor(enabled=device != "cpu") as memory:
+        trainer = gs.WarpImageTrainer(
+            full_targets, full_cameras, focal, model["scene_radius"] or (
+                real_scene.scene_radius if real_scene is not None else distance * 0.35
+            ),
+            model["capacity"], model["initial_splats"], device, values["runtime"]["seed"],
+            init_scene=initial, background=background,
+            learning_rates=values["learning_rates"],
+            tile_pair_capacity=model["tile_pair_capacity"],
+            training_options={key: values[key] for key in
+                              ("compact_box", "projection", "multiview_adc", "sparse")},
+            kernel=kernel,
+        )
+        memory.sample()
+        if memory.enabled and memory.peak_mib is None:
+            raise RuntimeError("NVML did not report this process's GPU memory after setup")
+        reporter = ValidationReporter(run_dir / "validation_metrics.csv")
+        (run_dir / "snapshots").mkdir(exist_ok=True)
+        training_summary = gs.run_training(
+            trainer, config, training_targets, eval_ids,
+            run_dir / "snapshots", run_dir / "final.png",
+            description=f"{scene}/{kernel}/seed_{values['runtime']['seed']}",
+            held_out_frame_ids=heldout_ids,
+            metric_reporter=reporter,
+        )
+        memory.sample()
+        training_summary["peak_train_gpu_memory_mib"] = memory.peak_mib
+        training_summary["gpu_name"] = memory.gpu_name
+        training_summary["gpu_memory_sample_interval_ms"] = int(memory.interval_seconds * 1000)
+        training_summary["gpu_memory_measurement"] = "nvml_process_sampled_peak"
+        memory.reset_peak()
+        _test_evaluation(trainer, data, width, height, background, run_dir, training_summary,
+                         real_scene, lpips_metric, lpips_net, memory)
 
 
 def main():
