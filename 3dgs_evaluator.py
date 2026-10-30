@@ -192,6 +192,17 @@ def evaluate(args: argparse.Namespace) -> None:
         targets, cameras, focal, distance, frame_paths = real_scene.load_views(
             args.split, width, height,
         )
+    if args.frames:
+        requested = set(args.frames)
+        available = set(frame_paths)
+        missing = requested - available
+        if missing:
+            raise ValueError(f"Requested frames are not in the {args.split} split: {sorted(missing)}")
+        selected = [index for index, name in enumerate(frame_paths) if name in requested]
+        targets = targets[selected]
+        cameras = cameras[selected]
+        focal = focal[selected] if isinstance(focal, np.ndarray) and focal.ndim > 1 else focal
+        frame_paths = [frame_paths[index] for index in selected]
     scene_radius = real_scene.scene_radius if real_scene is not None else distance * 0.35
     trainer, using_sh = build_trainer(args, scene, targets, cameras, focal, scene_radius, device)
 
@@ -268,6 +279,8 @@ def main() -> None:
     )
     parser.add_argument("--split", choices=("train", "val", "test"), default="test",
                         help="Mip-NeRF 360 split; default: test.")
+    parser.add_argument("--frames", nargs="+", metavar="NAME",
+                        help="Render only these filenames from the selected split.")
     parser.add_argument(
         "--metrics", nargs="+", choices=METRICS, default=list(METRICS),
         metavar="METRIC", help=f"Any of: {', '.join(METRICS)}. Default: all three.",

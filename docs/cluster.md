@@ -67,6 +67,44 @@ The overview is written to `outputs-20k/reports/overview.md`, with per-scene
 reports and plots in `outputs-20k/reports/<scene>/`. The script excludes
 reference runs from budget comparisons when settings or held-out splits differ.
 
+## Snapshot comparison site
+
+Build the static site from copied runs. It needs no web dependencies or server
+backend. The existing snapshot PNGs supply one fixed validation camera per
+run; PLY files supply splat counts and scale/opacity distributions at every
+saved step. `data/<scene>` is not required for this first build.
+
+```sh
+.venv/bin/python scripts/build_kernel_site.py --input-root outputs-20k/kernels
+cd outputs-20k/site
+python -m http.server 8765
+```
+
+Open `http://localhost:8765/`. The builder writes a self-contained directory
+at `outputs-20k/site/` and can be rerun after more rendered views are copied.
+The site compares the same step, seed, and camera across kernels and has a
+summary tab for the final held-out test metrics. Do not use test views to
+select a training checkpoint or tune settings.
+
+To add train and validation cameras, run the exporter on the cluster where the
+dataset and CUDA GPU are available. It selects three spread-out train cameras
+and all eight reserved validation cameras by default, renders the same camera
+from each saved PLY from 6k onward, and saves resized source photos.
+
+```sh
+.venv/bin/python scripts/export_kernel_views.py --input-root outputs-20k/kernels \
+  --scene bonsai --data data/bonsai --seeds 17 --arch gpu
+```
+
+Copy `outputs-20k/view_renders/` alongside the copied `kernels/` directory,
+then rerun `build_kernel_site.py`. Use `--steps`, `--train-views`, and
+`--validation-views` to limit export size. The exporter skips images already
+written, so a timed-out job can be rerun. Snapshot distributions are computed
+from saved PLYs: scale is the geometric mean of the three world-space axes,
+opacity is the sigmoid of the stored logit, and the displayed opacity share
+counts splats with opacity at least 0.5. These are scene-level diagnostics,
+not projected pixel footprint measurements.
+
 For the 20,000-step real-scene matrix, use `config/real_20k.yaml` and a fresh
 output root. For example:
 

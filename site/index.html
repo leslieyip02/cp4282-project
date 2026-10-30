@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kernel Atlas · 3DGS comparison</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="masthead">
+      <div class="brand"><span class="brand-mark">◈</span><span>Kernel Atlas</span><small>3DGS experiment explorer</small></div>
+      <nav aria-label="Pages"><button class="tab active" data-page="explore">Explore</button><button class="tab" data-page="summary">Summary</button></nav>
+    </header>
+    <main>
+      <section id="explore-page">
+        <div class="intro"><div><span class="eyebrow">SNAPSHOT LAB</span><h1>Watch the scene take shape.</h1><p>Compare the same camera and training step across three screen-space kernels.</p></div><div class="intro-note"><b>How to read this</b><span>Use validation views to inspect convergence. Test metrics live on the summary page.</span></div></div>
+        <div class="controls">
+          <label>Scene<select id="scene-select"></select></label>
+          <label>Seed<select id="seed-select"></select></label>
+          <label>Camera<select id="view-select"></select></label>
+          <label>Zoom<input id="zoom" type="range" min="1" max="3" step="0.1" value="1"><span id="zoom-value">1.0×</span></label>
+        </div>
+        <div class="timeline"><div class="timeline-top"><div><span class="eyebrow">TRAINING TIMELINE</span><strong id="step-label">—</strong></div><div class="step-buttons"><button id="prev-step" aria-label="Previous step">← Previous</button><button id="next-step" aria-label="Next step">Next →</button></div></div><input id="step-range" type="range" min="0" max="0" value="0"><div id="step-ticks" class="ticks"></div></div>
+        <div class="section-heading"><div><span class="eyebrow">MATCHED VIEW</span><h2 id="view-heading">—</h2></div><p id="view-note"></p></div>
+        <div id="image-grid" class="image-grid"></div>
+        <div class="analytics-head"><span class="eyebrow">UNDER THE HOOD</span><h2>What changed inside the splats?</h2><p>Distributions describe saved 3D primitives. Scale is the geometric mean of the three world-space axes.</p></div>
+        <div id="stat-grid" class="stat-grid"></div>
+        <div class="chart-grid"><article class="chart-card"><div><h3>Splat count over training</h3><p>Dots mark saved snapshots</p></div><div id="count-chart"></div></article><article class="chart-card"><div><h3>Scale distribution</h3><p>log₁₀ world-space geometric scale · selected step</p></div><div id="scale-chart"></div></article><article class="chart-card"><div><h3>Opacity distribution</h3><p>opacity after sigmoid · selected step</p></div><div id="opacity-chart"></div></article><article class="chart-card"><div><h3>Validation PSNR</h3><p>mean across the reserved validation cameras</p></div><div id="psnr-chart"></div></article></div>
+      </section>
+      <section id="summary-page" hidden><div class="intro summary-intro"><div><span class="eyebrow">EXPERIMENT SUMMARY</span><h1>Where the kernels differ.</h1><p>Final held-out test results, paired by scene and seed. Higher PSNR and SSIM, lower LPIPS are better.</p></div></div><div id="summary-content"></div></section>
+    </main>
+    <footer>Kernel Atlas <span>·</span> Fixed capacity, paired seeds, matched cameras</footer>
+  </div>
+</body>
+</html>
