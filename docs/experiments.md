@@ -1,9 +1,9 @@
 # Experiment catalogue and workflows
 
 This catalogue describes the run files currently copied into this repository.
-Every listed scene has three kernels (`gaussian`, `linear`, `polynomial`) and
-paired seeds 7, 17, and 27: nine completed runs per scene. `outputs/`,
-`outputs-pilot/`, and `outputs-20k/` are ignored by Git. “Historical” means
+Unless noted, every listed scene has three kernels (`gaussian`, `linear`,
+`polynomial`) and paired seeds 7, 17, and 27: nine completed runs per scene.
+Output directories are ignored by Git. “Historical” means
 retain the data for provenance; it does not require moving or deleting files.
 
 | Matrix | Scenes | Saved training steps | Location | Role |
@@ -13,10 +13,12 @@ retain the data for provenance; it does not require moving or deleting files.
 | Real, counter | counter | **16,000** | `outputs/kernels/counter/` | Historical; the copied run configs are 16k, not 8k |
 | Bonsai pilot | bonsai | 16,000 | `outputs-pilot/kernels/bonsai/` | Historical budget pilot |
 | Real, current | bicycle, bonsai, counter | 20,000 | `outputs-20k/kernels/` | Current real matrix and comparison site |
+| Bonsai 200k capacity | bonsai | 20,000 | `outputs-cap200k/kernels/bonsai/` | Capacity follow-up, nine runs |
 
 The copied `counter` runs in `outputs/kernels/` are 16k. No 8k counter
-checkpoints are present there. All listed real runs use 100,000 splat capacity
-and the 0.25 projected-radius guard. The current 20k matrix also extends the
+checkpoints are present there. All listed real runs except the 200k capacity matrix
+use 100,000 splat capacity; every real run uses the 0.25 projected-radius guard.
+The current 20k matrix also extends the
 position learning-rate schedule to 20k, so comparisons across budgets change
 both training duration and schedule. The old and current bicycle heights are
 260 and 259 pixels respectively; do not interpret their cross-budget metric
@@ -104,38 +106,36 @@ filesystem may block its JSON fetch, so serve the directory over local HTTP.
 
 ## Capacity follow-up decision
 
-The bonsai COLMAP initialization contains 50,000 splats. All nine current
+The bonsai COLMAP initialization contains 50,000 splats. All nine 100k-capacity
 bonsai runs reach the 100,000 cap by the first validation log at step 500 and
 remain there at every saved PLY. The cap is therefore active, but the current
-data cannot show whether it hurts Gaussian more than the other kernels.
+100k matrix alone cannot show whether it hurts Gaussian more than the other kernels.
 
-First compare matched train and validation views across steps to identify
-whether Gaussian detail is absent from the start or degrades later. Then run
-a **capacity pilot on bonsai** at 20k steps: 100k versus a higher capacity
-(for example, 200k), all three kernels, and one paired seed. If the higher
-capacity changes the result materially, run the same capacity comparison
-for seeds 7, 17, and 27. Keep resolution, initialization, position schedule,
-guard, optimizer, split, and evaluation protocol fixed. Save higher-capacity
-runs to a new output root. Report the kernel-by-capacity interaction:
-
-The prepared 200k config changes only `model.capacity` from
-`config/real_20k.yaml`. For a seed-17 pilot, matrix indices 1, 4, and 7
-select Gaussian, linear, and polynomial respectively:
+The three-seed 200k-capacity matrix is in `outputs-cap200k/`. Compare it
+against the matched 100k runs with:
 
 ```sh
-export OUTPUT_ROOT="$PWD/outputs-cap200k"
-sbatch --array=1,4,7 scripts/slurm_train_real.sh data/bonsai config/real_20k_200k.yaml
+.venv/bin/python scripts/report_capacity.py \
+  --low-root outputs-20k/kernels --high-root outputs-cap200k/kernels \
+  --scene bonsai
 ```
 
-Check the GPU memory and completion status before expanding to all three
-seeds. Compare each 200k run against its seed-17 counterpart in
-`outputs-20k/kernels/bonsai/`, then compute the interaction:
+This verifies configuration, split, test views, LPIPS backbone, and identical
+COLMAP initialization, then writes `outputs-cap200k/capacity_report/bonsai/`.
+The prepared 200k config changes only `model.capacity` from
+`config/real_20k.yaml`. Across seeds, Gaussian gains 0.67–4.93 dB PSNR,
+linear changes by −2.89 to +0.66 dB, and polynomial gains 0.15–1.35 dB.
+The mean linear-minus-Gaussian gap falls from +4.54 to +0.99 dB, and the
+polynomial-minus-Gaussian gap from +5.18 to +3.12 dB. The interaction is:
 
 `(alternative − Gaussian at high capacity) − (alternative − Gaussian at 100k)`.
 
-A smaller alternative-versus-Gaussian gap at higher capacity would support
-the idea that alternative kernels fit better under the constrained splat
-budget. If all three kernels improve similarly, the cap limits the renderer
-but does not explain the relative bonsai result. Inspect actual splat counts
-and GPU memory because higher capacity increases both training resource use
-and the number of primitives that may be active.
+The shrinking gaps support a capacity-dependent kernel effect on bonsai, but
+the response varies substantially by seed. Polynomial still leads Gaussian
+on all three seeds at 200k; linear is mixed. All three 200k kernels hit their
+cap by step 1,500. Gaussian seed 27's validation PSNR peaks at 8,500 and is
+2.96 dB lower at 20,000, so optimization stability is also part of the
+diagnosis. This is one scene; do not generalize the capacity interaction to
+other real scenes without a matched capacity study there. The higher-capacity
+runs use 96 MiB more sampled training GPU memory on matched GPU models and
+about 1.6–1.9× as much training time.
