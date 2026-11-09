@@ -1,7 +1,7 @@
 const COLORS = {gaussian:'#545f61', linear:'#3575bd', polynomial:'#c67039'};
 const KERNELS = ['gaussian','linear','polynomial'];
 const $ = id => document.getElementById(id);
-let data, scene, seed, step, view, zoom = 1;
+let data, syntheticData, scene, seed, step, view, zoom = 1;
 
 function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function num(value, digits=2) { return value == null ? '—' : Number(value).toFixed(digits); }
@@ -97,15 +97,14 @@ function mean(values){const valid=values.filter(Number.isFinite);return valid.le
 function metric(run,key){return run.summary[key] == null ? null : Number(run.summary[key])}
 function deltaCell(value,betterPositive,digits){return `<span class="${value==null?'neutral':(value*betterPositive>0?'good':'bad')}">${signed(value,digits)}</span>`}
 
-function drawSummary(){
+function matrixSummary(matrix, title, subtitle, id){
   let cards='<div class="summary-grid">';
-  const sceneNames=Object.keys(data.scenes), total=sceneNames.reduce((n,s)=>n+data.scenes[s].seeds.length*3,0);
+  const sceneNames=Object.keys(matrix.scenes), total=sceneNames.reduce((n,s)=>n+matrix.scenes[s].seeds.length*3,0);
   cards+=`<article class="summary-card"><span class="eyebrow">COVERAGE</span><b>${sceneNames.length}</b><small>scenes · ${total} kernel/seed runs</small></article>`;
   cards+=`<article class="summary-card"><span class="eyebrow">KERNELS</span><b>3</b><small>Gaussian · linear · polynomial</small></article>`;
-  cards+=`<article class="summary-card"><span class="eyebrow">CHECKPOINTS</span><b>2k</b><small>step spacing in copied runs</small></article></div>`;
+  cards+=`<article class="summary-card"><span class="eyebrow">DATA SOURCE</span><b class="source-name">${escapeHtml(matrix.sourceRoot || 'selected runs')}</b><small>generated from its kernels/ directory</small></article></div>`;
   for(const sceneName of sceneNames){
-    const s=data.scenes[sceneName], seeds=s.seeds, base=seeds.map(seed=>s.runs.gaussian[String(seed)]);
-    const baseMeans={psnr:mean(base.map(r=>metric(r,'mean_psnr_db'))),ssim:mean(base.map(r=>metric(r,'mean_ssim'))),lpips:mean(base.map(r=>metric(r,'mean_lpips')))};
+    const s=matrix.scenes[sceneName], seeds=s.seeds, base=seeds.map(seed=>s.runs.gaussian[String(seed)]);
     let rows='';
     for(const kernel of KERNELS){const runs=seeds.map(seed=>s.runs[kernel][String(seed)]);
       const vals={psnr:mean(runs.map(r=>metric(r,'mean_psnr_db'))),ssim:mean(runs.map(r=>metric(r,'mean_ssim'))),lpips:mean(runs.map(r=>metric(r,'mean_lpips')))};
@@ -114,13 +113,25 @@ function drawSummary(){
     }
     cards+=`<article class="summary-card"><span class="eyebrow">${escapeHtml(sceneName.toUpperCase())} · ${seeds.length} PAIRED SEEDS</span><h2>${escapeHtml(sceneName[0].toUpperCase()+sceneName.slice(1))}</h2><p>Means across final test views and seeds; deltas are paired against Gaussian.</p><div class="table-wrap"><table><thead><tr><th>Kernel</th><th>PSNR dB</th><th>SSIM</th><th>LPIPS</th><th>ΔPSNR</th><th>ΔSSIM</th><th>ΔLPIPS</th></tr></thead><tbody>${rows}</tbody></table></div></article>`;
   }
-  cards+='<div class="summary-note">Test views are held out from training and validation. View examples and snapshot distributions are diagnostic; use the paired final-test values for the reported comparison. Timing and memory should only be compared on matched GPU hardware.</div>';
-  $('summary-content').innerHTML=cards;
+  return `<section class="result-matrix" id="${id}"><div class="matrix-heading"><span class="eyebrow">${escapeHtml(subtitle)}</span><h2>${escapeHtml(title)}</h2><p>Final held-out test views · three paired seeds per scene</p></div>${cards}</section>`;
+}
+
+function drawSummary(){
+  const synthetic=syntheticData?.scenes || {};
+  let content='<nav class="result-jump" aria-label="Result matrices"><a href="#synthetic-results">Synthetic scenes</a><a href="#real-results">Real scenes</a><a href="analysis.html">Analysis & conclusion</a></nav>';
+  content+='<div class="metric-key"><b>How to read the metrics</b><span><strong>PSNR ↑</strong> measures pixel error in decibels.</span><span><strong>SSIM ↑</strong> compares local structure, brightness, and contrast.</span><span><strong>LPIPS ↓</strong> compares learned image features.</span></div>';
+  content+=Object.keys(synthetic).length ? matrixSummary(syntheticData,'NeRF-synthetic scenes','01 · 256 × 256 · 8,000 steps · 100k splat cap','synthetic-results') : '<p class="summary-note" id="synthetic-results">Synthetic results were not bundled. Rebuild with <code>--synthetic-root outputs/kernels</code> to include them.</p>';
+  content+=matrixSummary(data,'Mip-NeRF 360 real scenes','02 · 390-pixel long edge · 20,000 steps · 200k splat cap','real-results');
+  content+='<section class="result-conclusion" id="conclusion"><span class="eyebrow">ANALYSIS & CONCLUSION</span><h2>What do these differences mean?</h2><p>Read the separate interpretation of linear and polynomial results, training and rendering costs, validation behavior, and study limitations.</p><a href="analysis.html">Read the analysis ↗</a></section>';
+  content+='<div class="summary-note">Test views are held out from training and validation. View examples and snapshot distributions are diagnostic; use the paired final-test values for the reported comparison. Timing and memory should only be compared on matched GPU hardware.</div>';
+  $('summary-content').innerHTML=content;
 }
 
 async function start(){
   try{const response=await fetch('data.json');if(!response.ok)throw Error(`${response.status} ${response.statusText}`);data=await response.json()}
   catch(error){document.querySelector('main').innerHTML=`<div class="summary-card"><h2>Could not load site data</h2><p>Serve this folder with <code>python -m http.server</code> and open the local URL. ${escapeHtml(error.message)}</p></div>`;return}
+  try{const response=await fetch('synthetic-results.json');if(response.ok)syntheticData=await response.json()}
+  catch(error){console.warn('Synthetic results unavailable:',error)}
   const scenes=Object.keys(data.scenes);$('scene-select').innerHTML=scenes.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s[0].toUpperCase()+s.slice(1))}</option>`).join('');
   scene=scenes.includes('bonsai')?'bonsai':scenes[0];$('scene-select').value=scene;
   seed=currentScene().seeds.includes(17)?17:currentScene().seeds[0];selectScene(scene);drawSummary();
@@ -131,7 +142,11 @@ async function start(){
   $('prev-step').onclick=()=>{const steps=availableSteps();step=steps[Math.max(0,steps.indexOf(step)-1)];draw()};
   $('next-step').onclick=()=>{const steps=availableSteps();step=steps[Math.min(steps.length-1,steps.indexOf(step)+1)];draw()};
   $('zoom').oninput=e=>{zoom=Number(e.target.value);$('zoom-value').textContent=`${zoom.toFixed(1)}×`;document.querySelectorAll('.image-viewport img').forEach(img=>img.style.transform=`scale(${zoom})`)};
-  document.querySelectorAll('.tab').forEach(button=>button.onclick=()=>{document.querySelectorAll('.tab').forEach(tab=>tab.classList.toggle('active',tab===button));$('explore-page').hidden=button.dataset.page!=='explore';$('summary-page').hidden=button.dataset.page!=='summary'});
+  const showPage=page=>{document.querySelectorAll('.tab[data-page]').forEach(tab=>tab.classList.toggle('active',tab.dataset.page===page));$('explore-page').hidden=page!=='explore';$('summary-page').hidden=page!=='summary';};
+  document.querySelectorAll('.tab[data-page]').forEach(button=>button.onclick=()=>{location.hash=button.dataset.page==='summary'?'summary':'explore';showPage(button.dataset.page)});
+  const summaryHashes=['#summary','#synthetic-results','#real-results','#conclusion'];
+  window.addEventListener('hashchange',()=>showPage(summaryHashes.includes(location.hash)?'summary':'explore'));
+  showPage(summaryHashes.includes(location.hash)?'summary':'explore');
   document.addEventListener('keydown',e=>{if(['SELECT','INPUT'].includes(document.activeElement.tagName))return;if(e.key==='ArrowLeft')$('prev-step').click();if(e.key==='ArrowRight')$('next-step').click()});
 }
 start();

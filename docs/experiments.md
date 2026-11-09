@@ -12,13 +12,13 @@ retain the data for provenance; it does not require moving or deleting files.
 | Real, early | bicycle, bonsai, flowers, garden | 8,000 | `outputs/kernels/` | Historical real matrix |
 | Real, counter | counter | **16,000** | `outputs/kernels/counter/` | Historical; the copied run configs are 16k, not 8k |
 | Bonsai pilot | bonsai | 16,000 | `outputs-pilot/kernels/bonsai/` | Historical budget pilot |
-| Real, current | bicycle, bonsai, counter | 20,000 | `outputs-20k/kernels/` | Current real matrix and comparison site |
-| Bonsai 200k capacity | bonsai | 20,000 | `outputs-cap200k/kernels/bonsai/` | Capacity follow-up, nine runs |
+| Real, 100k capacity | bicycle, bonsai, counter | 20,000 | `outputs-20k/kernels/` | Historical; matched capacity comparator |
+| Real, 200k capacity | bicycle, bonsai, counter, flowers, garden, kitchen, room, stump, treehill | 20,000 | `outputs-cap200k/kernels/` | Current real matrix and comparison site |
 
 The copied `counter` runs in `outputs/kernels/` are 16k. No 8k counter
 checkpoints are present there. All listed real runs except the 200k capacity matrix
 use 100,000 splat capacity; every real run uses the 0.25 projected-radius guard.
-The current 20k matrix also extends the
+Both 20k real matrices extend the
 position learning-rate schedule to 20k, so comparisons across budgets change
 both training duration and schedule. The old and current bicycle heights are
 260 and 259 pixels respectively; do not interpret their cross-budget metric
@@ -58,12 +58,12 @@ mkdir -p logs
 sbatch scripts/slurm_train_real.sh data/bonsai config/real.yaml
 ```
 
-For the current matrix, set a separate output root and pass the 20k config.
-Use the same command for bicycle and counter:
+For the current 200k-capacity matrix, set a separate output root and pass the
+200k-capacity 20k-step config. Repeat for all nine real scenes:
 
 ```sh
-export OUTPUT_ROOT="$PWD/outputs-20k"
-sbatch scripts/slurm_train_real.sh data/bonsai config/real_20k.yaml
+export OUTPUT_ROOT="$PWD/outputs-cap200k"
+sbatch scripts/slurm_train_real.sh data/bonsai config/real_20k_200k.yaml
 ```
 
 After the training arrays finish, submit analysis:
@@ -78,31 +78,52 @@ indices to be retried without replacing completed runs.
 
 ## Snapshot comparison site
 
+The generated site has Motivation, Kernels, Procedure, Explore runs, Results,
+and Analysis pages. The kernel guide compares radial profiles, 2D footprints,
+and 3D weight surfaces. The explorer synchronizes camera, seed, and checkpoint.
+The current build uses `outputs-cap200k/kernels/` for nine real scenes (81
+runs) and `outputs/kernels/` for eight synthetic scenes (72 runs). The Results
+tab shows both matrices separately. The Analysis page reads these summaries for
+scene-level quality and matched-GPU cost charts, and discusses convergence and
+limitations for the current matrices. The real-scene explorer uses saved snapshot
+PNGs for one fixed validation view per scene; additional cameras and source
+photos require the render export below.
+
+In the commands below, replace `<outputs>` with the directory that holds the
+selected `kernels/` tree (for this matrix, `outputs-cap200k`). Keep
+`kernels/`, `view_renders/`, and `site/` under that same directory.
+
 Run the GPU render array once per scene on the cluster. The Slurm script only
 exports images and source photographs; it does not build the site:
 
 ```sh
-export OUTPUT_ROOT="$PWD/outputs-20k"
+export OUTPUT_ROOT="$PWD/<outputs>"
 mkdir -p logs
-sbatch scripts/slurm_render_views.sh data/bicycle
-sbatch scripts/slurm_render_views.sh data/bonsai
-sbatch scripts/slurm_render_views.sh data/counter
+for scene in bicycle bonsai counter flowers garden kitchen room stump treehill; do
+  sbatch scripts/slurm_render_views.sh "data/$scene"
+done
 ```
 
 Each array has three seed tasks. By default, each task exports three training
 cameras and eight reserved validation cameras at saved steps from 6k onward.
 Existing image exports are skipped, so a failed task can be resubmitted.
-After the render arrays finish, copy `outputs-20k/view_renders/` to the local
-machine beside the copied `outputs-20k/kernels/` directory. Build the site
+After the render arrays finish, copy `<outputs>/view_renders/` to the local
+machine beside the copied `<outputs>/kernels/` directory. Build the site
 locally:
 
 ```sh
-.venv/bin/python scripts/build_kernel_site.py --input-root outputs-20k/kernels
-python -m http.server 8765 --directory outputs-20k/site
+.venv/bin/python scripts/build_kernel_site.py --input-root "<outputs>/kernels" \
+  --synthetic-root outputs/kernels
+python -m http.server 8765 --directory "<outputs>/site"
 ```
 
-The site uses pre-rendered images; opening `index.html` directly from the
-filesystem may block its JSON fetch, so serve the directory over local HTTP.
+The motivation, kernel, and procedure pages work as static files. The explorer
+and Results tab fetch `data.json`; Results and Analysis also fetch
+`synthetic-results.json`. Serve the site directory over local HTTP for those
+pages. Synthetic summaries are optional for a partial build, but Analysis
+requires both matrices. Its written interpretation refers to the current 8k
+synthetic and 20k, 200k-capacity real experiments and should be revised if
+those experiments change.
 
 ## Capacity follow-up decision
 

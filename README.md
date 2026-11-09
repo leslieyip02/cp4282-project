@@ -6,10 +6,12 @@ SSIM, VGG LPIPS, training time, rendering time, splat count, and tile work. The 
 methodology is in [docs/methodology.md](docs/methodology.md).
 The [experiment catalogue](docs/experiments.md) records the completed matrices,
 their actual saved step budgets, and the repeatable train, render, and site workflows.
+The generated [Kernel Atlas](site/index.html) explains the motivation, kernel
+shapes, and experimental procedure, then links to the run explorer and results.
 
 Real-scene runs use a projected-footprint limit to exclude near-camera splats
-that can cover most of an image. The current 20k real-scene matrix is in
-`outputs-20k/`; older budgets are retained separately. Use a new `OUTPUT_ROOT`
+that can cover most of an image. The current 20k-step, 200k-splat real-scene
+matrix is in `outputs-cap200k/`; older budgets are retained separately. Use a new `OUTPUT_ROOT`
 for any capacity follow-up so its checkpoints remain distinct.
 The real-scene config targets a 390-pixel long edge and derives the short edge
 from each scene's camera aspect ratio.

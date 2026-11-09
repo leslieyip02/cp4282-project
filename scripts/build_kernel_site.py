@@ -1,8 +1,10 @@
 """Build a portable static kernel comparison site from copied experiment runs.
 
 Example:
-    python scripts/build_kernel_site.py --input-root outputs-20k/kernels
-The generated site is outputs-20k/site/ by default. Serve its parent with
+    python scripts/build_kernel_site.py --input-root <outputs>/kernels \
+        --synthetic-root outputs/kernels
+Replace <outputs> with the directory holding the selected matrix. The
+generated site is <outputs>/site/ by default. Serve its parent with
 `python -m http.server` or serve the site directory directly.
 """
 
@@ -19,6 +21,7 @@ from plyfile import PlyData
 
 ROOT = Path(__file__).resolve().parents[1]
 KERNELS = ("gaussian", "linear", "polynomial")
+SYNTHETIC_SCENES = ("chair", "drums", "ficus", "hotdog", "lego", "materials", "mic", "ship")
 SCALE_EDGES = np.linspace(-6, 2, 33)
 OPACITY_EDGES = np.linspace(0, 1, 33)
 
@@ -73,18 +76,23 @@ def main() -> None:
     parser.add_argument("--scenes", nargs="+", help="Defaults to all scene directories")
     parser.add_argument("--seeds", nargs="+", type=int,
                         help="Defaults to all Gaussian seeds per scene")
+    parser.add_argument("--synthetic-root", type=Path,
+                        help="Optional kernels/ tree for the eight NeRF-synthetic test summaries")
     args = parser.parse_args()
     input_root = args.input_root.resolve()
     view_root = (args.view_root or input_root.parent / "view_renders").resolve()
     output = (args.output_dir or input_root.parent / "site").resolve()
     output.mkdir(parents=True, exist_ok=True)
     scenes = args.scenes or sorted(path.name for path in input_root.iterdir() if path.is_dir())
-    data = {"version": 1, "scaleEdges": SCALE_EDGES.tolist(),
+    data = {"version": 1, "sourceRoot": input_root.parent.name,
+            "scaleEdges": SCALE_EDGES.tolist(),
             "opacityEdges": OPACITY_EDGES.tolist(), "scenes": {}}
     for scene in scenes:
         seed_root = input_root / scene / "gaussian"
         seeds = args.seeds or sorted(int(path.name[5:]) for path in seed_root.glob("seed_*")
                                      if path.is_dir() and path.name[5:].isdigit())
+        if not seeds:
+            raise FileNotFoundError(f"No Gaussian seed directories found in {seed_root}")
         scene_data = {"seeds": seeds, "views": {}, "runs": {kernel: {} for kernel in KERNELS}}
         for seed in seeds:
             exemplar = input_root / scene / "gaussian" / f"seed_{seed}"
@@ -145,9 +153,35 @@ def main() -> None:
                 scene_data["runs"][kernel][str(seed)] = run_data
         data["scenes"][scene] = scene_data
         print(f"Prepared {scene}: {len(seeds)} seeds, {len(scene_data['views'])} available views")
-    for name in ("index.html", "styles.css", "app.js"):
+    for name in ("index.html", "kernel-page.css", "kernel-page.js",
+                 "motivation.html", "procedure.html", "info-page.css",
+                 "explore.html", "styles.css", "app.js",
+                 "analysis.html", "analysis.css", "analysis.js"):
         shutil.copy2(ROOT / "site" / name, output / name)
+    shutil.copytree(ROOT / "site" / "assets" / "analysis",
+                    output / "assets" / "analysis", dirs_exist_ok=True)
     (output / "data.json").write_text(json.dumps(data, separators=(",", ":")))
+    synthetic = {"sourceRoot": args.synthetic_root.parent.name if args.synthetic_root else None,
+                 "scenes": {}}
+    if args.synthetic_root:
+        synthetic_root = args.synthetic_root.resolve()
+        synthetic["sourceRoot"] = synthetic_root.parent.name
+        for scene in SYNTHETIC_SCENES:
+            seed_root = synthetic_root / scene / "gaussian"
+            if not seed_root.is_dir():
+                raise FileNotFoundError(seed_root)
+            seeds = sorted(int(path.name[5:]) for path in seed_root.glob("seed_*")
+                           if path.is_dir() and path.name[5:].isdigit())
+            if not seeds:
+                raise FileNotFoundError(f"No synthetic seeds found in {seed_root}")
+            runs = {kernel: {} for kernel in KERNELS}
+            for kernel in KERNELS:
+                for seed in seeds:
+                    summary_path = synthetic_root / scene / kernel / f"seed_{seed}" / "test_summary.json"
+                    runs[kernel][str(seed)] = {"summary": json.loads(summary_path.read_text())}
+            synthetic["scenes"][scene] = {"seeds": seeds, "runs": runs}
+        print(f"Prepared synthetic summaries: {len(synthetic['scenes'])} scenes")
+    (output / "synthetic-results.json").write_text(json.dumps(synthetic, separators=(",", ":")))
     print(f"Built {output / 'index.html'}")
 
 

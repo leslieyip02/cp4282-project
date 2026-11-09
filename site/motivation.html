@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kernel Atlas · Motivation</title>
+  <meta name="description" content="Why compare screen-space splat kernels, and how this study relates to earlier work.">
+  <link rel="stylesheet" href="kernel-page.css">
+  <link rel="stylesheet" href="info-page.css">
+</head>
+<body>
+  <header class="site-header"><div class="wrap header-inner"><a class="brand" href="index.html"><span class="brand-mark">◈</span> Kernel Atlas</a><nav aria-label="Site pages"><a class="active" aria-current="page" href="motivation.html">Motivation</a><a href="index.html">Kernels</a><a href="procedure.html">Procedure</a><a href="explore.html">Explore runs</a><a href="explore.html#summary">Results</a><a href="analysis.html">Analysis</a></nav></div></header>
+  <main class="wrap info-main">
+    <header class="info-hero"><span class="eyebrow">01 / WHY THIS PROJECT</span><h1>Does the fade shape matter?</h1><p>A 3D splat becomes an ellipse on screen. The kernel controls how its opacity fades from the center to the edge. That choice can change image detail, optimization gradients, and the amount of rasterization work. This project measures those effects inside one renderer.</p></header>
+    <section class="question-band" aria-labelledby="question-title"><div><span class="eyebrow">THE EXPLORATION</span><h2 id="question-title">How does the screen-space weight affect rendering?</h2></div><p>Compare Gaussian, linear radial, and degree-2 polynomial weights under matched settings within each scene. Observe held-out reconstruction quality, convergence behavior, and rendering cost. The 3D ellipsoids, projection, color model, and front-to-back compositing stay the same.</p></section>
+    <section class="related" aria-labelledby="related-title"><span class="eyebrow">RELATED WORK</span><h2 id="related-title">Four ideas behind the comparison</h2><p class="section-intro">These papers motivate the question. Their methods change more than the single fixed weight function tested here, so their reported gains are not predictions for this experiment.</p>
+      <div class="paper-grid">
+        <article class="paper"><span class="paper-year">2023 · BASELINE</span><h3>3D Gaussian Splatting</h3><p>Kerbl et al. combine anisotropic 3D Gaussians, density control, and visibility-aware rendering. It establishes the Gaussian splat as the reference point for this study.</p><a href="https://arxiv.org/abs/2308.04079" target="_blank" rel="noopener noreferrer">Read the paper ↗</a></article>
+        <article class="paper"><span class="paper-year">2024 · LINEAR</span><h3>3D Linear Splatting</h3><p>Chen et al. investigate linear kernels to address soft Gaussian boundaries and detail loss in high-frequency regions. Their full system reports quality and speed gains.</p><a href="https://arxiv.org/abs/2411.12440" target="_blank" rel="noopener noreferrer">Read the paper ↗</a></article>
+        <article class="paper"><span class="paper-year">2025 · FLEXIBLE SHAPES</span><h3>Deformable Radial Kernel Splatting</h3><p>Huang et al. use learnable radial bases with adjustable angles and scales to represent more varied shapes. Their method also changes depth sorting and culling.</p><a href="https://arxiv.org/abs/2412.11752" target="_blank" rel="noopener noreferrer">Read the paper ↗</a></article>
+        <article class="paper"><span class="paper-year">2026 · POLYNOMIAL</span><h3>From ex(p) to poly</h3><p>Mueller et al. replace the exponential with a polynomial approximation and ReLU to enable more aggressive culling while keeping compatibility with Gaussian-splat data. Its kernel is not this study’s fixed degree-2 formula.</p><a href="https://arxiv.org/abs/2603.18707" target="_blank" rel="noopener noreferrer">Read the paper ↗</a></article>
+      </div>
+    </section>
+    <section class="reason" aria-labelledby="reason-title"><div><span class="eyebrow">WHY TRY THIS</span><h2 id="reason-title">A practical comparison of three fade shapes</h2></div><div><p>This project explores 3D Gaussian splatting by changing the pixel-weight function in one renderer. Each variant uses the same projected geometry and training framework within a scene. The three weights share a half-height radius, making their tails and support boundaries easier to compare.</p><p>The goal is to see how quality and cost respond under the chosen constraints, not to claim a new rendering method or a universal best kernel. Different resolutions, splat caps, training schedules, or backgrounds could change the result.</p><a class="jump" href="index.html">See the three kernel shapes <span aria-hidden="true">↗</span></a></div></section>
+  </main>
+  <footer><div class="wrap">Kernel Atlas <span>·</span> Screen-space kernel study for 3D Gaussian splatting</div></footer>
+</body>
+</html>

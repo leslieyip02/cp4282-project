@@ -32,12 +32,18 @@ if [[ ! "$index" =~ ^[0-2]$ ]]; then
   exit 1
 fi
 scene="${DATASET_NAME:-$(basename "$data_dir")}"
-output_root="${OUTPUT_ROOT:-$SLURM_SUBMIT_DIR/outputs-20k}"
+output_root="${OUTPUT_ROOT:?Set OUTPUT_ROOT to the selected output directory before submitting}"
 python_bin="${PYTHON_BIN:-python}"
 "$python_bin" scripts/check_training_env.py --gpu
+step_args=()
+if [[ -n "${STEPS:-}" ]]; then
+  read -r -a selected_steps <<< "$STEPS"
+  step_args=(--steps "${selected_steps[@]}")
+fi
 "$python_bin" scripts/export_kernel_views.py \
   --input-root "$output_root/kernels" \
   --output-root "$output_root/view_renders" \
   --scene "$scene" --data "$data_dir" --seeds "${seeds[$index]}" \
+  "${step_args[@]}" \
   --train-views "${TRAIN_VIEWS:-3}" \
   --validation-views "${VALIDATION_VIEWS:-8}" --arch gpu

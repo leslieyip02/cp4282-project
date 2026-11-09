@@ -2,8 +2,9 @@
 
 Run on the cluster, where the dataset and a CUDA GPU are available. Rerunning skips
 existing images. Example:
-    python scripts/export_kernel_views.py --input-root outputs-20k/kernels \
+    python scripts/export_kernel_views.py --input-root <outputs>/kernels \
         --scene bonsai --data data/bonsai --seeds 17 --arch gpu
+Replace <outputs> with the directory holding the selected runs.
 """
 
 from __future__ import annotations

@@ -10,7 +10,7 @@ Explore how Gaussian, linear radial, and degree-2 polynomial **screen-space spla
 
 - [ ] **Literature matrix:** Read [3D Gaussian Splatting](https://doi.org/10.1145/3592433), [3D Linear Splatting](https://arxiv.org/abs/2411.12440), [Deformable Radial Kernel Splatting](https://arxiv.org/abs/2412.11752), and [From ex(p) to poly](https://arxiv.org/abs/2603.18707). Produce a one-page table of each paper's kernel, other pipeline changes, datasets, quality measures, and speed results. Note where this project's exact kernel definitions and evaluation differ.
 - [ ] **Research questions and hypotheses:** Write a short statement of the expected quality, stability, and cost tradeoffs before examining the remaining scenes. Treat these as hypotheses, not promised outcomes.
-- [ ] **Kernel explainer:** Produce one figure with the three weight curves versus elliptical distance, their shared half-maximum radius, and their support boundaries. Add a short explanation of how a projected 3D ellipsoid supplies the distance used by the weight function. Use the exact formulas in [methodology.md](methodology.md).
+- [x] **Kernel explainer:** The [Kernel Atlas page](../site/index.html) shows the exact weight curves, shared half-maximum radius, 2D footprints, 3D surfaces, and projected-ellipse distance.
 
 ## 2. Complete the 200k real-scene comparison
 
@@ -38,6 +38,9 @@ The saved `outputs/kernels/` matrix covers chair, drums, ficus, hotdog, lego, ma
 - [ ] **Optional resolution check:** If resources permit, rerun a small indoor/outdoor subset at a higher image resolution with all three kernels and paired seeds. Deliver a separate report; do not mix these scores with the 390-pixel matrix.
 
 ## 5. Present and demonstrate the findings
+
+- [x] **Experiment page:** The [Procedure page](../site/procedure.html) describes scene splits, matched seeds, initialization, training settings, and evaluation rules.
+- [ ] **Full results page:** Expand the existing Atlas summary into a dedicated page with the complete synthetic and real-scene matrices, uncertainty, matched image crops, and quality-versus-cost views.
 
 - [ ] **Kernel appearance demo:** Show isolated and overlapping splats with identical geometry, opacity, and color under each weight function. Include the curve figure so the appearance has a precise explanation.
 - [ ] **Scene comparison demo:** Extend the existing [snapshot comparison site](experiments.md#snapshot-comparison-site) to the 200k outputs. Deliver synchronized camera, seed, checkpoint, and zoom controls with the reference and three kernel renders side by side.
