@@ -7,16 +7,16 @@ starting new experiments.
 
 ## For the report
 
-- [ ] Audit all synthetic run configs, splits, shared initializations, and final
-  metrics as thoroughly as the real matrix, and record any exceptions.
-- [ ] Make a compact related-work comparison: kernel definition, other pipeline
-  changes, datasets, quality measures, and speed claims. Distinguish this
-  study's exact definitions from published linear and polynomial approaches.
+- [ ] Verify synthetic source manifests and initialization bytes if the original
+  datasets become available. The saved run configs and final metrics have been
+  checked; the report states the remaining provenance limit.
+- [x] Add a sourced related-work comparison that distinguishes this study's
+  fixed kernels from other splatting systems.
 - [ ] Export matched held-out test crops showing representative gains, ties,
   and losses, including at least one synthetic scene. Keep the existing bonsai
   DSCF5648 validation image labelled as qualitative evidence only.
-- [ ] Add a kernel-curve figure, paired scene/seed plot, and matched-hardware
-  quality-versus-render-time plot from the existing run files.
+- [x] Add kernel-curve, paired scene/seed, and matched-hardware quality-versus-
+  render-time figures from the existing run files.
 - [ ] Insert the required format, references, and authorship or tool-use
   declaration from the course submission brief.
 

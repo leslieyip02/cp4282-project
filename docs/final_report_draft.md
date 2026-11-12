@@ -1,12 +1,50 @@
 # Linear and quadratic screen-space kernels for 3D Gaussian splatting
 
-**Draft status:** Results and interpretation are based on the saved final-test summaries and generated reports. Add the required institutional format, literature comparison, and matched visual examples before submission.
+**Draft status:** The numerical results, figures, and interpretation below use
+the saved final-test summaries. Add the course's required format and authorship
+details before submission. Matched held-out test crops have not been exported;
+the available bonsai illustration is a validation view and is labelled as such.
 
 ## Abstract
 
-We compare Gaussian, linear radial, and degree-2 polynomial screen-space weights in one splatting renderer. The projected 3D ellipsoids, color model, and compositing are held fixed within each experiment; the pixel weight inside a projected footprint changes. We evaluate two distinct matrices with three paired seeds per scene. The synthetic matrix contains eight NeRF-synthetic scenes at 256 × 256 pixels, 100,000 splats, and 8,000 training steps. The real-scene matrix contains nine Mip-NeRF 360 scenes at a 390-pixel long edge, 200,000 splats, and 20,000 steps. At the fixed final checkpoint, polynomial loses mean PSNR, SSIM, and LPIPS against Gaussian in every synthetic scene and seed. In the real-scene matrix, polynomial improves mean PSNR in seven of nine scenes and 23 of 27 paired seeds, with a mean scene difference of +0.579 dB but a median of only +0.084 dB. Linear gives mixed results in both matrices. The contrast is descriptive because the matrices differ in multiple settings. A kernel choice should therefore be scoped to the tested configuration and scene, with quality and rendering cost considered together.
+We compare Gaussian, linear radial, and quadratic (degree-2 polynomial)
+screen-space weights in one splatting renderer. Within each experiment, the
+projected 3D ellipsoids, color model, compositing, scene, and training budget
+are held fixed; the pixel weight inside a projected footprint changes. We
+evaluate eight NeRF-synthetic scenes at 256 × 256 pixels, a 100,000-splat cap,
+and 8,000 steps, and nine Mip-NeRF 360 scenes at a 390-pixel long edge, a
+200,000-splat cap, and 20,000 steps. Each scene has three paired seeds. At the
+fixed final checkpoint, quadratic has worse PSNR, SSIM, and LPIPS than Gaussian
+in every synthetic scene and seed. In the real-scene matrix it improves mean
+PSNR in seven of nine scenes and 23 of 27 paired seeds. The mean scene gain is
++0.579 dB, but the median is +0.084 dB; bonsai and kitchen account for much
+of the mean. Linear gives mixed results. The two matrices differ in several
+settings, so their contrast does not isolate scene type. Kernel choice in this
+renderer depends on scene and budget, and quality gains must be weighed against
+rendering cost.
 
-## 1. Question and kernel definitions
+## 1. Introduction and related work
+
+In 3D Gaussian splatting, projected ellipsoids contribute opacity to image
+pixels before front-to-back compositing. The usual Gaussian footprint has a
+soft tail. This project asks whether two fixed, finite-support screen-space
+weights change reconstruction quality and cost when the rest of this renderer
+is held constant within a scene. The study is a controlled comparison of this
+implementation, not an attempt to reproduce a different splatting system.
+
+| Work | Kernel or representation change | Relationship to this study |
+| --- | --- | --- |
+| Kerbl et al. (2023) [1] | Anisotropic 3D Gaussians, density control, and visibility-aware splatting | Establishes the Gaussian-splat baseline and broader pipeline. |
+| Chen et al. (2024) [2] | 3D Linear Splatting replaces Gaussian kernels and reports sharper detail and faster rendering in its system. | Motivates linear weights; its full system and measurements are not controlled predictions for this renderer. |
+| Huang et al. (2025) [3] | Deformable Radial Kernel Splatting uses learnable radial bases with additional primitive and rendering changes. | Shows the wider design space; this study fixes kernel shape and 3D primitives. |
+| Mueller et al. (2026) [4] | A polynomial approximation to the exponential kernel aims to retain compatibility with Gaussian-optimized data and improve culling. | Motivates polynomial weights; our quadratic is a fixed half-height-matched kernel trained from scratch, not their approximation. |
+
+The datasets come from the NeRF synthetic Blender collection [5] and Mip-NeRF
+360 [6]. Published scores for those methods are not direct baselines here:
+our images are resized, our validation split reserves training views in real
+scenes, and our renderer and budgets differ.
+
+## 2. Question and kernel definitions
 
 The question is how the shape of a projected splat's screen-space weight affects held-out reconstruction quality, optimization behavior, and cost under a fixed within-scene budget. Let `q` be the squared Mahalanobis distance from a pixel to the center of the projected ellipse. The implemented weights are:
 
@@ -14,25 +52,60 @@ The question is how the shape of a projected splat's screen-space weight affects
 - Linear radial: `max(0, 1 - sqrt(q / (8 ln 2)))`.
 - Degree-2 polynomial: `max(0, 1 - q / R²)²`, where `R² = 2 ln 2 / (1 - 1/sqrt(2))`.
 
-All three equal one-half at `q = 2 ln 2`. Their total mass and support differ. The linear and polynomial weights have finite support; the Gaussian is rendered under the implementation's alpha threshold and compact-box rule. The degree is fixed at 2. Full implementation details are in [methodology.md](methodology.md).
+All three equal one-half at `q = 2 ln 2` (Figure 1). This matches the
+half-maximum radius, not the integrated weight or total footprint area. Linear
+and quadratic have finite natural support; Gaussian is truncated by the
+implementation's alpha threshold and compact-box rule. The polynomial degree
+is fixed at 2 and is not optimized. Kernel-specific support is used in
+training, tile culling, validation, and test rendering. Full implementation
+details are in [methodology.md](methodology.md).
 
-## 2. Experimental design
+![Three screen-space kernel profiles, matched at half-height](figures/kernel_profiles.png)
+
+*Figure 1. The implemented weights as functions of elliptical distance
+`d = sqrt(q)`. The dashed lines mark the common half-height. This plot shows
+the mathematical weights; practical renderer support also depends on opacity
+and the compact-box threshold.*
+
+## 3. Experimental design
 
 | Matrix | Scenes | Image size | Capacity | Steps | Background | Projected-radius guard |
 | --- | ---: | --- | ---: | ---: | --- | --- |
 | NeRF-synthetic | 8 | 256 × 256 | 100,000 | 8,000 | White | Disabled |
 | Mip-NeRF 360 | 9 | 390-pixel long edge | 200,000 | 20,000 | Black | 0.25 of larger image dimension |
 
-Each scene has Gaussian, linear, and polynomial runs with seeds 7, 17, and 27. Within a scene and matrix, runs share the camera split, settings, and initialization. Synthetic scenes use a fixed generated point initialization; real scenes use the same COLMAP initialization. The primary endpoint is the final checkpoint at the specified training step. We compare paired final-test means for PSNR and SSIM (higher is better) and VGG LPIPS (lower is better). The unit for cross-scene interpretation is a scene, not an individual test view. Validation curves diagnose convergence; they do not select the primary test checkpoint. Render time is a measured single-view elapsed time, while tile pairs count projected splat/tile records and are not a time proxy. Timing and sampled GPU memory are compared only where GPU models match.
+Each scene has Gaussian, linear, and quadratic runs with seeds 7, 17, and 27.
+Within a scene and matrix, the runs use the same configuration apart from
+kernel and seed. Synthetic runs point to one generated `init.ply` and the same
+train, validation, and test manifests per scene. Real runs use a common COLMAP
+initialization and recorded camera split. The real-scene configuration also
+omits a projected splat from a view if its support radius exceeds 25% of the
+larger image dimension; the synthetic configuration has no such guard. These
+choices are held fixed across kernels within each matrix.
+
+The primary endpoint is each run's final checkpoint. We pair each alternative
+with Gaussian at the same scene and seed and compare the mean over held-out
+test views. Higher PSNR and SSIM and lower VGG LPIPS are better. We report seed
+values and scene means; test views from one scene are repeated measurements,
+not independent scene replicates. Reserved validation views diagnose training
+but do not select the reported checkpoint. Render time is the median of five
+end-to-end single-view renders after one warm-up; tile pairs count projected
+splat/tile records. Elapsed cost is compared only for pairs run on the same
+GPU model. Sampled peak GPU memory uses 250 ms NVML polling and may miss
+shorter transients.
 
 The real matrix has 81 of 81 expected final-test summaries and no missing-job
-entries in its generated `kernel_analysis/missing_jobs.csv`. The generated scene
-reports verify the within-scene settings and splits. The synthetic matrix has
-72 of 72 expected final-test summaries. A fuller audit of every synthetic
-split and initialization file remains to be documented. Generated reports are
-ignored by Git and must be regenerated from the corresponding run files.
+entries. Its generated reports check within-scene settings and splits, and
+the nine saved COLMAP initialization PLYs in each real scene have the same
+SHA-256 digest. The capacity diagnostic also checks initialization PLYs
+across the two caps. The synthetic
+matrix has 72 of 72 expected final-test summaries. Regenerated scene reports
+found no settings warnings, but the original synthetic datasets are absent
+locally, so their manifest contents and shared `init.ply` bytes could not be
+checked. The saved synthetic run configs point to the same initialization path
+within each scene. This is the verification boundary for the synthetic matrix.
 
-## 3. Synthetic results: 8k steps, 100k splats
+## 4. Synthetic results: 8k steps, 100k splats
 
 The table reports the mean of each scene's three paired seed differences from Gaussian. Positive PSNR and negative LPIPS favor the alternative.
 
@@ -47,9 +120,15 @@ The table reports the mean of each scene's three paired seed differences from Ga
 | Mic | −0.069 | +0.0008 | −0.321 | +0.0033 |
 | Ship | −0.133 | +0.0030 | −0.487 | +0.0072 |
 
-Across scene means, linear changes PSNR by −0.059 dB and LPIPS by +0.0018; it improves PSNR in two of eight scenes. Polynomial changes PSNR by −0.397 dB and LPIPS by +0.0057. Its PSNR, SSIM, and LPIPS are worse than Gaussian in all eight scenes and all 24 paired seeds. These results should remain visible alongside the real-scene findings.
+Across scene means, linear changes PSNR by −0.059 dB and LPIPS by +0.0018;
+it improves PSNR in two of eight scenes. Quadratic changes PSNR by −0.397 dB
+and LPIPS by +0.0057. Its PSNR, SSIM, and LPIPS are worse than Gaussian in all
+eight scenes and all 24 paired seeds. The negative result is consistent across
+this matrix, including hotdog, where linear's mean PSNR improves while
+quadratic's falls by 0.928 dB. It should remain visible alongside the real
+findings.
 
-## 4. Real-scene results: 20k steps, 200k splats
+## 5. Real-scene results: 20k steps, 200k splats
 
 The table again reports the mean paired difference across the three seeds in
 each scene. The complete source table is `reports/overview.csv` under the
@@ -67,9 +146,25 @@ real-scene output root.
 | Stump | −0.151 | +0.0070 | +0.074 | −0.0115 |
 | Treehill | −0.042 | +0.0048 | −0.018 | −0.0019 |
 
-Polynomial improves mean PSNR in seven of nine scenes (23/27 paired seeds), mean SSIM in all nine, and mean LPIPS in eight. Its mean scene PSNR difference is +0.579 dB, while its median scene difference is +0.084 dB. Bonsai (+3.123 dB) and kitchen (+1.098 dB) drive much of the mean; garden and treehill are near ties with slightly negative mean PSNR. Linear improves mean PSNR in four scenes (13/27 seeds) and mean LPIPS in two scenes. Its mean scene PSNR difference is +0.166 dB, but its median is −0.042 dB. These are exploratory results from nine selected scenes and three seeds each, not evidence of a universal ranking.
+Quadratic improves mean PSNR in seven of nine scenes (23/27 paired seeds),
+mean SSIM in all nine, and mean LPIPS in eight. Its mean scene PSNR difference
+is +0.579 dB, while its median scene difference is +0.084 dB. Bonsai
+(+3.123 dB) and kitchen (+1.098 dB) drive much of the mean; garden and
+treehill are near ties with slightly negative mean PSNR. Linear improves mean
+PSNR in four scenes (13/27 seeds) and mean LPIPS in two scenes. Its mean scene
+PSNR difference is +0.166 dB, but its median is −0.042 dB. These are
+exploratory results from nine selected scenes and three seeds each, not
+evidence of a universal ranking.
 
-## 5. Optimization and capacity diagnostics
+![Per-scene paired PSNR differences for both experiment matrices](figures/paired_psnr_by_scene.png)
+
+*Figure 2. Each small dot is one seed's final-test PSNR difference from its
+Gaussian partner; each diamond is the scene mean. Blue denotes linear radial,
+orange denotes quadratic (`polynomial` in run files). Panels have different
+x-axis scales. Synthetic and real-scene results should be read within their
+own budgets.*
+
+## 6. Optimization and capacity diagnostics
 
 All 81 real runs finish at the 200,000-splat cap. The largest gap between best and final validation PSNR is bonsai Gaussian seed 27: its best value occurs at step 8,500 and the 20,000-step value is 2.96 dB lower. Bonsai linear seed 17 is 1.14 dB below its best validation value at the final checkpoint. This makes the magnitude of the bonsai final-test advantage sensitive to optimization stability. The prespecified final checkpoint remains the primary endpoint; a different checkpoint rule would need to be specified before further test-based comparison.
 
@@ -82,15 +177,81 @@ higher-capacity output root. The comparisons match training steps, schedule,
 resolution, split, and initialization within each scene. They show that the
 effect of increasing the splat cap is not uniform across scenes.
 
-## 6. Cost and interpretation
+## 7. Rendering cost and quality
 
-The real-scene reports compare rendering and training time using same-GPU seed pairs. Linear's scene-level render-time changes range from −5.9% to +4.8%; polynomial's range from −13.6% to +32.0%. Several scene estimates have only one or two GPU-matched pairs, so these ranges do not establish a stable speed ranking. Tile-pair counts and elapsed time should be reported separately. Sampled peak training GPU memory is unchanged between kernel choices in the matched real-scene pairs, at the resolution of the 250 ms NVML sampling method.
+The real-scene reports compare elapsed cost only for kernel/Gaussian seed pairs
+on the same GPU model. Linear's scene-level mean render-time changes range
+from −5.9% to +4.8%; quadratic's range from −13.6% to +32.0%. Several scene
+means use only one or two hardware-matched pairs. Across individual matched
+pairs, Figure 3 shows 22 linear and 19 quadratic comparisons; the spread and
+outliers do not establish a stable speed ranking. A quality gain can carry a
+substantial render-time cost. Tile-pair counts measure rasterization work but
+are not a substitute for elapsed time. Sampled peak training GPU memory is
+unchanged between kernel choices in matched real-scene pairs at the 250 ms
+sampling resolution; this does not exclude short-lived differences.
 
-The synthetic and real matrices change several settings together: scene set and type, image resolution, background, initialization, splat cap, training duration, learning-rate schedule, and projected-radius guard. Their differing outcomes cannot be attributed to any one of those factors without a matched-settings experiment. The results establish a configuration-specific quality tradeoff in this renderer: polynomial performs worse throughout the tested synthetic matrix and often better in the tested 200k real-scene matrix; linear is inconsistent. Matched held-out image crops are still needed to describe visible differences in edges, texture, blur, and artifacts.
+![Final-test quality change versus matched-GPU render-time change](figures/matched_quality_cost.png)
 
-## 7. Work needed for the submission version
+*Figure 3. Each point compares an alternative with the Gaussian run for the
+same real scene and seed, only when the GPU model matches. Positive vertical
+values favor the alternative; negative horizontal values mean faster rendering.
+This is an exploratory quality-cost view, not a cross-hardware benchmark.*
 
-1. Add a sourced prior-work table and distinguish each paper's pipeline from the exact kernels and evaluation here.
-2. Add a kernel-curve figure, paired scene/seed plot, quality-versus-render-time plot, and matched reference/render crops.
-3. Complete the synthetic config, split, and initialization audit and report its coverage explicitly.
-4. Insert the required report format, citation style, authorship details, and any course-specific sections once the submission brief is available.
+## 8. Interpretation and limitations
+
+The synthetic and real matrices change several settings together: scene set
+and type, image resolution, background, initialization, splat cap, training
+duration, learning-rate schedule, and projected-radius guard. Their differing
+outcomes cannot identify which of these caused the contrast. The capacity
+diagnostic holds more settings fixed, but covers only three real scenes and
+does not explain the synthetic-to-real difference. The large bonsai gain is
+also affected by late Gaussian validation decline. The fixed final checkpoint
+remains the primary endpoint; selecting another checkpoint after inspecting
+test results would change the protocol.
+
+The available qualitative bonsai DSCF5648 reference and kernel images in the
+[Kernel Atlas](../site/analysis.html) are **validation-view illustrations**,
+not held-out test evidence. Matched held-out crops have not been exported for
+this draft, so visible edge sharpness, blur, or artifacts should not be inferred
+from PSNR or LPIPS alone. Test-view counts within a scene do not increase the
+number of independent scenes. Three seeds provide limited information about
+optimization variability, and timing differences are hardware sensitive.
+
+The supported conclusion is configuration specific: quadratic performs worse
+throughout the tested synthetic matrix and often better in the 200k real
+matrix; linear is inconsistent. Neither result implies that a kernel is best
+for 3DGS in general.
+
+## 9. Reproducibility and conclusion
+
+The [README](../README.md) gives commands to train the nine kernel/seed jobs
+per scene and regenerate each matrix's `kernel_analysis/` and `reports/`
+directories. The report's tables use `reports/overview.csv`; the paired-seed
+PSNR figure uses each run's `test_summary.json`; the quality-cost figure also
+uses its GPU model and mean render time. The capacity figures come from
+`scripts/report_capacity.py`. Generated results and source datasets are
+Git-ignored, so a fresh clone needs the saved run trees to regenerate these
+exact tables. Re-running training requires the source datasets, synthetic
+initializations, CUDA environment, and settings in the checked-in configs;
+`requirements.txt` is not a version lockfile.
+
+These experiments answer a narrower question than the prior systems: changing
+only the fixed screen-space weight in this trainer can matter substantially,
+but its direction and cost depend on the scene and training budget. The
+synthetic negative result, real-scene heterogeneity, and matched capacity
+diagnostic should all be reported together.
+
+## References
+
+1. Kerbl, B., Kopanas, G., Leimkühler, T., and Drettakis, G. (2023).
+   [3D Gaussian Splatting for Real-Time Radiance Field Rendering](https://arxiv.org/abs/2308.04079).
+2. Chen, H., et al. (2024).
+   [Beyond Gaussians: Fast and High-Fidelity 3D Splatting with Linear Kernels](https://arxiv.org/abs/2411.12440).
+3. Huang, Y.-H., et al. (2025).
+   [Deformable Radial Kernel Splatting](https://openaccess.thecvf.com/content/CVPR2025/papers/Huang_Deformable_Radial_Kernel_Splatting_CVPR_2025_paper.pdf).
+4. Mueller, J. H., Winter, M., and Steinberger, M. (2026).
+   [From ex(p) to poly: Gaussian Splatting with Polynomial Kernels](https://arxiv.org/abs/2603.18707).
+5. Mildenhall, B., et al. (2020).
+   [NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis](https://arxiv.org/abs/2003.08934).
+6. Barron, J. T., et al. (2022).
+   [Mip-NeRF 360: Unbounded Anti-Aliased Neural Radiance Fields](https://openaccess.thecvf.com/content/CVPR2022/html/Barron_Mip-NeRF_360_Unbounded_Anti-Aliased_Neural_Radiance_Fields_CVPR_2022_paper.html).
