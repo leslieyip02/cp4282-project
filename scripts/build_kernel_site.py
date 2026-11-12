@@ -1,10 +1,10 @@
 """Build a portable static kernel comparison site from copied experiment runs.
 
 Example:
-    python scripts/build_kernel_site.py --input-root <outputs>/kernels \
-        --synthetic-root outputs/kernels
-Replace <outputs> with the directory holding the selected matrix. The
-generated site is <outputs>/site/ by default. Serve its parent with
+    python scripts/build_kernel_site.py --input-root <real-root>/kernels \
+        --synthetic-root <synthetic-root>/kernels
+Replace the placeholders with directories holding the selected matrices. The
+generated site is <real-root>/site/ by default. Serve its parent with
 `python -m http.server` or serve the site directory directly.
 """
 

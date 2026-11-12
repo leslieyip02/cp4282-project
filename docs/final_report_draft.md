@@ -1,4 +1,4 @@
-# Screen-space kernel shapes for 3D Gaussian splatting
+# Linear and quadratic screen-space kernels for 3D Gaussian splatting
 
 **Draft status:** Results and interpretation are based on the saved final-test summaries and generated reports. Add the required institutional format, literature comparison, and matched visual examples before submission.
 
@@ -25,7 +25,12 @@ All three equal one-half at `q = 2 ln 2`. Their total mass and support differ. T
 
 Each scene has Gaussian, linear, and polynomial runs with seeds 7, 17, and 27. Within a scene and matrix, runs share the camera split, settings, and initialization. Synthetic scenes use a fixed generated point initialization; real scenes use the same COLMAP initialization. The primary endpoint is the final checkpoint at the specified training step. We compare paired final-test means for PSNR and SSIM (higher is better) and VGG LPIPS (lower is better). The unit for cross-scene interpretation is a scene, not an individual test view. Validation curves diagnose convergence; they do not select the primary test checkpoint. Render time is a measured single-view elapsed time, while tile pairs count projected splat/tile records and are not a time proxy. Timing and sampled GPU memory are compared only where GPU models match.
 
-The real matrix has 81 of 81 expected final-test summaries and no entries in [missing_jobs.csv](../outputs-cap200k/kernel_analysis/missing_jobs.csv). The generated scene reports verify the within-scene settings and splits. The synthetic matrix has 72 of 72 expected final-test summaries. A fuller audit of every synthetic split and initialization file remains to be documented.
+The real matrix has 81 of 81 expected final-test summaries and no missing-job
+entries in its generated `kernel_analysis/missing_jobs.csv`. The generated scene
+reports verify the within-scene settings and splits. The synthetic matrix has
+72 of 72 expected final-test summaries. A fuller audit of every synthetic
+split and initialization file remains to be documented. Generated reports are
+ignored by Git and must be regenerated from the corresponding run files.
 
 ## 3. Synthetic results: 8k steps, 100k splats
 
@@ -46,7 +51,9 @@ Across scene means, linear changes PSNR by −0.059 dB and LPIPS by +0.0018; it 
 
 ## 4. Real-scene results: 20k steps, 200k splats
 
-The table again reports the mean paired difference across the three seeds in each scene. The complete source table is [overview.csv](../outputs-cap200k/reports/overview.csv).
+The table again reports the mean paired difference across the three seeds in
+each scene. The complete source table is `reports/overview.csv` under the
+real-scene output root.
 
 | Scene | Linear ΔPSNR (dB) | Linear ΔLPIPS | Polynomial ΔPSNR (dB) | Polynomial ΔLPIPS |
 | --- | ---: | ---: | ---: | ---: |
@@ -66,7 +73,14 @@ Polynomial improves mean PSNR in seven of nine scenes (23/27 paired seeds), mean
 
 All 81 real runs finish at the 200,000-splat cap. The largest gap between best and final validation PSNR is bonsai Gaussian seed 27: its best value occurs at step 8,500 and the 20,000-step value is 2.96 dB lower. Bonsai linear seed 17 is 1.14 dB below its best validation value at the final checkpoint. This makes the magnitude of the bonsai final-test advantage sensitive to optimization stability. The prespecified final checkpoint remains the primary endpoint; a different checkpoint rule would need to be specified before further test-based comparison.
 
-Three matched 100k-versus-200k real-scene studies show that capacity response is scene dependent. On [bonsai](../outputs-cap200k/capacity_report/bonsai/report.md), the polynomial-minus-Gaussian PSNR gap falls from +5.18 to +3.12 dB. On [counter](../outputs-cap200k/capacity_report/counter/report.md), it falls from +0.67 to +0.35 dB. On [bicycle](../outputs-cap200k/capacity_report/bicycle/report.md), it changes only from +0.04 to +0.08 dB. These comparisons match training steps, schedule, resolution, split, and initialization within each scene. They show that the effect of increasing the splat cap is not uniform across scenes.
+Three matched 100k-versus-200k real-scene studies show that capacity response
+is scene dependent. On bonsai, the polynomial-minus-Gaussian PSNR gap falls
+from +5.18 to +3.12 dB. On counter, it falls from +0.67 to +0.35 dB. On
+bicycle, it changes only from +0.04 to +0.08 dB. These figures come from the
+three generated `capacity_report/<scene>/report.md` files under the
+higher-capacity output root. The comparisons match training steps, schedule,
+resolution, split, and initialization within each scene. They show that the
+effect of increasing the splat cap is not uniform across scenes.
 
 ## 6. Cost and interpretation
 

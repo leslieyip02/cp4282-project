@@ -1,8 +1,9 @@
 """Report one or more kernel scenes from raw run files, optionally versus another budget.
 
 Example:
-    python scripts/report_kernels.py --input-root outputs-20k/kernels \
-        --reference-root outputs/kernels --scenes bonsai bicycle counter
+    python scripts/report_kernels.py --input-root <outputs>/kernels
+
+Replace <outputs> with the output root containing the runs to report.
 """
 
 from __future__ import annotations

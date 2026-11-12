@@ -2,6 +2,10 @@
 
 *CP4282 individual project*
 
+**Historical planning document.** For the implemented protocol and saved
+results, read [methodology.md](methodology.md), [experiments.md](experiments.md),
+and [final_report_draft.md](final_report_draft.md).
+
 ## Research question
 
 In a 3D Gaussian splatting trainer built from the course implementation, how does replacing the Gaussian **screen-space splat weight** with a linear radial or degree-2 polynomial weight affect held-out reconstruction quality, optimization stability, and rendering cost? I will test the three kernels on eight NeRF-synthetic scenes and nine Mip-NeRF 360 scenes, holding the training configuration, data split, initialization, and splat cap fixed within each scene. I want to learn whether any quality gain is consistent across scenes and random seeds and whether it is worth its rendering cost.

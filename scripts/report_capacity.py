@@ -1,8 +1,8 @@
 """Compare matched kernel runs at two splat capacities.
 
 Example:
-    python scripts/report_capacity.py --low-root outputs-20k/kernels \
-        --high-root outputs-cap200k/kernels --scene bonsai
+    python scripts/report_capacity.py --low-root <low-root>/kernels \
+        --high-root <high-root>/kernels --scene bonsai
 """
 
 from __future__ import annotations
@@ -274,8 +274,9 @@ def main():
              "The PSNR interaction is (alternative − Gaussian) at high capacity minus the "
              "same gap at low capacity. Negative values mean Gaussian gained more from the "
              "additional splats.", "",
-             markdown_table(["Kernel", "100k gap vs Gaussian", "200k gap vs Gaussian",
-                             "Mean interaction", "200k PSNR wins"], gap_rows), "",
+             markdown_table(["Kernel", f"{low_cap//1000}k gap vs Gaussian",
+                             f"{high_cap//1000}k gap vs Gaussian",
+                             "Mean interaction", f"{high_cap//1000}k PSNR wins"], gap_rows), "",
              "![Capacity response](capacity_response.png)", "",
              "![Validation curves](validation_capacity.png)", "",
              "## Held-out view consistency", "",
@@ -292,7 +293,7 @@ def main():
              markdown_table(["Seed", "Kernel", "GPU", "Train time high/low", "Δtrain peak MiB"],
                             cost_rows), "",
              f"This is a {len(seeds)}-seed capacity comparison on one scene. "
-             "The 37 held-out views are repeated measurements of the same scene, not independent "
+             f"The {len(reference_views)} held-out views are repeated measurements of the same scene, not independent "
              "scene replicates. Inspect matched image crops before attributing artifacts to capacity.", "",
              "Data: [run and interaction values](capacity_comparison.csv), "
              "[per-view changes](per_view_capacity.csv).", ""]

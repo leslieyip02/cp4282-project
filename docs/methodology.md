@@ -1,8 +1,8 @@
 # Kernel-shape methodology
 
-This file records the experimental design. The [run catalogue](experiments.md)
-records which matrices were actually completed, including the 16k counter
-runs and the current 20k real-scene matrix.
+This file records the implemented comparison. The [run catalogue](experiments.md)
+lists the completed and historical matrices; the [README](../README.md) gives
+the commands to reproduce them.
 
 ## Question and scope
 
@@ -34,9 +34,8 @@ is omitted from a view when either axis-aligned support radius exceeds 25% of
 the larger image dimension. This guards against near-camera splats that form
 large translucent color wedges. It is applied to all kernels in training,
 validation, and test rendering. Synthetic scenes leave the guard disabled.
-This is an exploratory correction motivated by the copied bonsai snapshots;
-the earlier unguarded real-scene runs should be kept separate and all kernels
-must be rerun under the new setting before drawing a comparison.
+The guard is part of the real-scene configuration and is held fixed across
+kernels within each real-scene matrix.
 Real scenes use `model.long_edge: 390`; the short edge is derived from the
 COLMAP camera aspect ratio and saved in `run_config.json`. All kernels and seeds
 for a scene therefore use identical dimensions, while scenes with different
@@ -76,46 +75,32 @@ with the same image and splat budgets. Old runs have no memory measurement.
 
 ## Experimental procedure
 
-1. **Pilot:** Run all three kernels on one synthetic scene and one real scene with
-   seed 7. Inspect renders, gradients, splat count, tile pairs, and timing.
-   Resolve numerical or culling errors before the full matrix.
-2. **Main matrix:** Run all three kernels on the eight NeRF-synthetic scenes,
-   Bonsai, and Counter with seeds 7, 17, 27: 90 runs. If resources allow,
-   add Bicycle and Garden to cover outdoor Mip-NeRF 360 scenes (108 runs total).
-   Generate one `init.ply` per
-   synthetic scene and reuse it across kernels and seeds. Real scenes use the
-   same COLMAP initialization for matched runs. Hold image resolution, camera
-   splits, optimizer, densification, 8,000 training steps, and the 100,000
-   splat cap fixed within each scene. The cap is a budget, not a guarantee of
-   equal actual splat counts.
-3. **Metrics:** Use the final 8,000-step checkpoint for the primary comparison.
-   Evaluate only on held-out test views. Record mean PSNR, SSIM, and LPIPS (VGG v0.1), splat count,
-   training time, mean test-view render time, and tile pairs. Validation curves
-   and saved snapshots diagnose convergence. If a validation-selected
-   checkpoint becomes the primary endpoint, implement and predeclare that
-   selection rule before examining test results.
+1. **Synthetic matrix:** Eight NeRF-synthetic scenes, three kernels, and paired
+   seeds 7, 17, and 27 produce 72 runs. Images are 256 × 256 on white; training
+   lasts 8,000 steps with a 100,000-splat cap. Generate one `init.ply` per scene
+   and reuse it for all nine runs. This matrix has no projected-radius guard.
+2. **Real matrix:** Nine Mip-NeRF 360 scenes, the same kernels and seeds, produce
+   81 runs. `config/real_20k_200k.yaml` uses a 390-pixel long edge, black
+   background, 20,000 training steps, a 20,000-step position learning-rate
+   schedule, a 200,000-splat cap, and the 0.25 projected-radius guard. Matched
+   runs use the same scene COLMAP initialization and camera split. The cap is a
+   budget; the achieved splat count is also reported.
+3. **Evaluation:** Use the fixed final checkpoint of each matrix as its primary
+   endpoint. Evaluate on held-out test views only. Save mean PSNR, SSIM, LPIPS
+   (VGG v0.1), splat count, training time, test render time, and tile pairs.
+   Reserved validation views and snapshots diagnose optimization, but do not
+   select the reported checkpoint.
 4. **Analysis:** Pair each alternative with Gaussian by scene and seed. Report
-   paired PSNR/SSIM/LPIPS deltas and per-scene 95% confidence intervals. Lower
-   LPIPS is better. Treat the
-   scene, rather than the individual view, as the unit for claims across
-   scenes. Avoid interpreting a confidence interval crossing zero as proof of
-   equivalence. Report both quality at equal steps and quality versus render
-   time, since the kernels may perform different amounts of work. Freeze the
-   degree at 2 for this matrix; a degree sweep would be a separate study with
-   validation-based selection and fresh test evaluation.
-5. **Longer-budget real-scene follow-up:** Use `config/real_20k.yaml` for all nine
-   Mip-NeRF 360 scenes, all three kernels, and paired seeds 7, 17, and 27.
-   Both training iterations and the position learning-rate schedule end at
-   20,000 steps. Save to a new output root and analyze it separately from the
-   8,000- and 16,000-step runs. This changes the schedule as well as the step
-   count; it is a budget comparison, not an isolated extra-steps effect.
+   PSNR/SSIM/LPIPS differences and seed variation by scene. Lower LPIPS is
+   better. Test views within a scene are correlated; use scenes, not individual
+   views, for cross-scene claims. Compare elapsed cost only on matched GPU
+   models, and report tile pairs separately. A confidence interval crossing
+   zero does not prove equivalence.
 
-Run `scripts/run_kernel_matrix.py --list` for array indices. Outputs are in
-`outputs/kernels/<scene>/<kernel>/seed_<seed>/`. `analyze_kernels.py` writes
-`outputs/kernel_analysis/{paired_runs,kernel_summary,validation_curves,missing_jobs}.csv`.
-Historical filter results in `outputs/analysis/` remain separate.
-When changing the real-scene guard, save new runs to a fresh output root so
-they cannot silently replace the unguarded runs.
+The synthetic and real matrices differ in several settings together, so their
+different outcomes cannot identify the effect of scene type alone. Earlier
+8k/100k, 16k/100k, and 20k/100k real runs remain separate; see the catalogue.
+Save any new capacity, resolution, or schedule study to a distinct output root.
 
 ## Final presentation
 

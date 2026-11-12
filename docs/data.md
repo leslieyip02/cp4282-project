@@ -27,7 +27,7 @@ per-view intrinsics from the COLMAP binaries and initializes splats from
 `points3D.bin`; it supports undistorted `PINHOLE` cameras. The same layout works
 for other NerfBaselines Mip-NeRF 360 scenes, such as `counter`.
 
-`config/real.yaml` sets a 390-pixel long edge and derives the other dimension
+The current `config/real_20k_200k.yaml` sets a 390-pixel long edge and derives the other dimension
 from each scene's COLMAP camera aspect ratio (390 × 260 for bonsai, approximately
 390 × 253 for a 1297 × 840 garden image). The resolved dimensions are saved in
 each run's `run_config.json`. The loader reserves eight of
@@ -50,6 +50,12 @@ unzip data/bonsai/reference/mipnerf360.zip -d data/bonsai/reference/mipnerf360
 Everything under `data/` is ignored by Git.
 
 ## NeRF-synthetic scenes
+
+Obtain the original [NeRF authors' Blender dataset](https://drive.google.com/drive/folders/1cK3UDIJqKAAm7zyrxRYVFJ0BRMgrwhh4)
+and extract the eight scenes so that each is directly under `data/<scene>/`
+(for example, `data/lego/transforms_train.json`). Keep the source archive or
+record its version if exact input provenance is needed. The datasets are not
+included in this repository.
 
 A scene needs `transforms_train.json`, `transforms_val.json`, and
 `transforms_test.json` plus their referenced images. The NeRF-synthetic download

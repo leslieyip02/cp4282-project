@@ -1,4 +1,4 @@
-# Capacity pilot: identical to real_20k.yaml except for the splat cap.
+# Main 20,000-step real-scene configuration; differs from real_20k.yaml in splat cap.
 paths:
   data: ../data/bonsai
   output: ../outputs/default.png
