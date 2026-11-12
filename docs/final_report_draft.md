@@ -1,9 +1,9 @@
 # Linear and quadratic screen-space kernels for 3D Gaussian splatting
 
-**Draft status:** The numerical results, figures, and interpretation below use
-the saved final-test summaries. Add the course's required format and authorship
-details before submission. Matched held-out test crops have not been exported;
-the available bonsai illustration is a validation view and is labelled as such.
+**Draft status:** The numerical results and selected held-out test illustrations
+below use saved final checkpoints. Add the course's required format and
+authorship details before submission. The older bonsai illustration in the
+Kernel Atlas uses a validation view and is labelled separately.
 
 ## Abstract
 
@@ -164,7 +164,47 @@ orange denotes quadratic (`polynomial` in run files). Panels have different
 x-axis scales. Synthetic and real-scene results should be read within their
 own budgets.*
 
-## 6. Optimization and capacity diagnostics
+## 6. Selected held-out test views
+
+Figures 3 and 4 compare the same crop of a reference test image with the three
+final-checkpoint renders for seed 17. The frames were selected after inspecting
+the saved results to illustrate gains, a loss, and a visually subtle synthetic
+case. They are examples, not an unbiased sample of test views. The PSNR values
+below come from the **full images**, not the displayed crops.
+
+| Scene and test frame | Crop box in saved pixels | Linear ΔPSNR (dB) | Quadratic ΔPSNR (dB) |
+| --- | --- | ---: | ---: |
+| Kitchen `DSCF0744.JPG` | `(140, 15, 280, 190)` | +1.351 | +2.891 |
+| Kitchen `DSCF0760.JPG` | `(95, 20, 300, 205)` | +0.802 | +1.706 |
+| Kitchen `DSCF0656.JPG` | `(135, 20, 345, 200)` | −0.165 | −0.711 |
+| Lego `./test/r_0` | `(64, 64, 192, 192)` | −0.110 | −0.222 |
+| Lego `./test/r_1` | `(64, 64, 192, 192)` | −0.041 | −0.163 |
+
+![Kitchen test crop, DSCF0744](figures/test_kitchen_DSCF0744.png)
+
+![Kitchen test crop, DSCF0760](figures/test_kitchen_DSCF0760.png)
+
+![Kitchen test crop, DSCF0656](figures/test_kitchen_DSCF0656.png)
+
+*Figure 3. Kitchen held-out test crops at 390 × 260 render resolution, seed 17.
+Each comparison shows reference, Gaussian, linear radial, and quadratic, left to right.
+The first two frames improve in full-view PSNR for both alternatives; the third
+does not. In `DSCF0744`, the alternatives appear to show a small darker patch at the left
+of the vehicle. The additional angles show that local appearance should be
+read alongside the frame-specific metrics, rather than inferred from the
+scene mean.*
+
+![Lego test crop, r_0](figures/test_lego_r_0.png)
+
+![Lego test crop, r_1](figures/test_lego_r_1.png)
+
+*Figure 4. Lego held-out test crops at 256 × 256 render resolution, seed 17,
+with the same left-to-right order. The kernel renders are difficult to
+distinguish by eye in these two crops despite small negative full-view PSNR
+differences for linear and quadratic. These views do not show the larger
+synthetic-matrix losses on their own.*
+
+## 7. Optimization and capacity diagnostics
 
 All 81 real runs finish at the 200,000-splat cap. The largest gap between best and final validation PSNR is bonsai Gaussian seed 27: its best value occurs at step 8,500 and the 20,000-step value is 2.96 dB lower. Bonsai linear seed 17 is 1.14 dB below its best validation value at the final checkpoint. This makes the magnitude of the bonsai final-test advantage sensitive to optimization stability. The prespecified final checkpoint remains the primary endpoint; a different checkpoint rule would need to be specified before further test-based comparison.
 
@@ -177,13 +217,13 @@ higher-capacity output root. The comparisons match training steps, schedule,
 resolution, split, and initialization within each scene. They show that the
 effect of increasing the splat cap is not uniform across scenes.
 
-## 7. Rendering cost and quality
+## 8. Rendering cost and quality
 
 The real-scene reports compare elapsed cost only for kernel/Gaussian seed pairs
 on the same GPU model. Linear's scene-level mean render-time changes range
 from −5.9% to +4.8%; quadratic's range from −13.6% to +32.0%. Several scene
 means use only one or two hardware-matched pairs. Across individual matched
-pairs, Figure 3 shows 22 linear and 19 quadratic comparisons; the spread and
+pairs, Figure 5 shows 22 linear and 19 quadratic comparisons; the spread and
 outliers do not establish a stable speed ranking. A quality gain can carry a
 substantial render-time cost. Tile-pair counts measure rasterization work but
 are not a substitute for elapsed time. Sampled peak training GPU memory is
@@ -192,12 +232,12 @@ sampling resolution; this does not exclude short-lived differences.
 
 ![Final-test quality change versus matched-GPU render-time change](figures/matched_quality_cost.png)
 
-*Figure 3. Each point compares an alternative with the Gaussian run for the
+*Figure 5. Each point compares an alternative with the Gaussian run for the
 same real scene and seed, only when the GPU model matches. Positive vertical
 values favor the alternative; negative horizontal values mean faster rendering.
 This is an exploratory quality-cost view, not a cross-hardware benchmark.*
 
-## 8. Interpretation and limitations
+## 9. Interpretation and limitations
 
 The synthetic and real matrices change several settings together: scene set
 and type, image resolution, background, initialization, splat cap, training
@@ -209,29 +249,33 @@ also affected by late Gaussian validation decline. The fixed final checkpoint
 remains the primary endpoint; selecting another checkpoint after inspecting
 test results would change the protocol.
 
-The available qualitative bonsai DSCF5648 reference and kernel images in the
-[Kernel Atlas](../site/analysis.html) are **validation-view illustrations**,
-not held-out test evidence. Matched held-out crops have not been exported for
-this draft, so visible edge sharpness, blur, or artifacts should not be inferred
-from PSNR or LPIPS alone. Test-view counts within a scene do not increase the
-number of independent scenes. Three seeds provide limited information about
-optimization variability, and timing differences are hardware sensitive.
+The kitchen and Lego crops in Figures 3 and 4 are held-out test views, but
+they were chosen after reading per-view results and cover only one seed in two
+scenes. Their visible details cannot establish a general artifact or sharpness
+ranking. The older bonsai DSCF5648 images in the
+[Kernel Atlas](../site/analysis.html) are **validation-view illustrations**.
+Test-view counts within a scene do not increase the number of independent
+scenes. Three seeds provide limited information about optimization variability,
+and timing differences are hardware sensitive.
 
 The supported conclusion is configuration specific: quadratic performs worse
 throughout the tested synthetic matrix and often better in the 200k real
 matrix; linear is inconsistent. Neither result implies that a kernel is best
 for 3DGS in general.
 
-## 9. Reproducibility and conclusion
+## 10. Reproducibility and conclusion
 
 The [README](../README.md) gives commands to train the nine kernel/seed jobs
 per scene and regenerate each matrix's `kernel_analysis/` and `reports/`
 directories. The report's tables use `reports/overview.csv`; the paired-seed
 PSNR figure uses each run's `test_summary.json`; the quality-cost figure also
 uses its GPU model and mean render time. The capacity figures come from
-`scripts/report_capacity.py`. Generated results and source datasets are
-Git-ignored, so a fresh clone needs the saved run trees to regenerate these
-exact tables. Re-running training requires the source datasets, synthetic
+`scripts/report_capacity.py`. The test illustrations use
+`scripts/slurm_export_test_crops.sh` with the frame names and crop boxes in
+Section 6; the five comparison images are included in `docs/figures/`.
+Generated results and source datasets are Git-ignored, so a fresh clone needs
+the saved run trees to regenerate these exact tables. Re-running training
+requires the source datasets, synthetic
 initializations, CUDA environment, and settings in the checked-in configs;
 `requirements.txt` is not a version lockfile.
 

@@ -7,19 +7,14 @@ starting new experiments.
 
 ## For the report
 
-- [ ] Verify synthetic source manifests and initialization bytes if the original
-  datasets become available. The saved run configs and final metrics have been
-  checked; the report states the remaining provenance limit.
 - [x] Add a sourced related-work comparison that distinguishes this study's
   fixed kernels from other splatting systems.
-- [ ] Export matched held-out test crops with
-  `scripts/slurm_export_test_crops.sh` showing representative gains, ties, and
-  losses, including at least one synthetic scene. Keep the existing bonsai
-  DSCF5648 validation image labelled as qualitative evidence only.
+- [x] Export selected held-out test crops with
+  `scripts/slurm_export_test_crops.sh` for kitchen and Lego. The report labels
+  them as illustrative; the existing bonsai DSCF5648 image remains labelled
+  as a validation view.
 - [x] Add kernel-curve, paired scene/seed, and matched-hardware quality-versus-
   render-time figures from the existing run files.
-- [ ] Insert the required format, references, and authorship or tool-use
-  declaration from the course submission brief.
 
 ## Later extensions, if time permits
 
