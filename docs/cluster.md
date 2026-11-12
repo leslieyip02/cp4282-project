@@ -86,3 +86,31 @@ LPIPS uses the VGG backbone on final test views. To backfill it for an older
 checkpoint without retraining, run
 `.venv/bin/python scripts/backfill_lpips.py RUN_DIR DATA_DIR --arch gpu`, then
 repeat the analysis. Keep final test views out of checkpoint selection.
+
+## Export held-out test crops for the report
+
+`scripts/slurm_render_views.sh` exports train and validation views for the site.
+For report illustrations, `scripts/slurm_export_test_crops.sh` renders one named
+test camera from the three saved final checkpoints, resizes the reference with
+the experiment's image-loading rule, and crops the same pixel rectangle from
+all four images. It also writes a labelled `comparison.png` and `metadata.json`.
+The crop coordinates are `left,top,right,bottom` in the saved run resolution;
+the script reads and checks that resolution from `run_config.json`.
+
+Set the output root to the matrix containing the selected scene. This example
+uses a kitchen test frame and a 390 × 260-pixel run:
+
+```sh
+mkdir -p logs
+RUN_ROOT=/path/to/main-real-output-root
+sbatch scripts/slurm_export_test_crops.sh \
+  data/kitchen "$RUN_ROOT" DSCF0744.JPG 17 140,15,280,190
+```
+
+The files land at
+`<output-root>/test_crops/kitchen/seed_17/DSCF0744/`. For a synthetic
+scene, pass the exact test-manifest frame path, such as `./test/r_0`, and a
+crop box within its 256 × 256 image. The script composites the synthetic
+reference over white, matching training and evaluation. Check
+`test_metrics.csv` for available frame names. The exported images are
+illustrations; the paired final-test metrics remain the primary result.

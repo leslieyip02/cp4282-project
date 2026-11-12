@@ -12,8 +12,9 @@ starting new experiments.
   checked; the report states the remaining provenance limit.
 - [x] Add a sourced related-work comparison that distinguishes this study's
   fixed kernels from other splatting systems.
-- [ ] Export matched held-out test crops showing representative gains, ties,
-  and losses, including at least one synthetic scene. Keep the existing bonsai
+- [ ] Export matched held-out test crops with
+  `scripts/slurm_export_test_crops.sh` showing representative gains, ties, and
+  losses, including at least one synthetic scene. Keep the existing bonsai
   DSCF5648 validation image labelled as qualitative evidence only.
 - [x] Add kernel-curve, paired scene/seed, and matched-hardware quality-versus-
   render-time figures from the existing run files.
