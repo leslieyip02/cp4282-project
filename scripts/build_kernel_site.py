@@ -83,6 +83,7 @@ def main() -> None:
     view_root = (args.view_root or input_root.parent / "view_renders").resolve()
     output = (args.output_dir or input_root.parent / "site").resolve()
     output.mkdir(parents=True, exist_ok=True)
+    (output / ".nojekyll").touch()
     scenes = args.scenes or sorted(path.name for path in input_root.iterdir() if path.is_dir())
     data = {"version": 1, "sourceRoot": input_root.parent.name,
             "scaleEdges": SCALE_EDGES.tolist(),
@@ -153,7 +154,7 @@ def main() -> None:
                 scene_data["runs"][kernel][str(seed)] = run_data
         data["scenes"][scene] = scene_data
         print(f"Prepared {scene}: {len(seeds)} seeds, {len(scene_data['views'])} available views")
-    for name in ("index.html", "kernel-page.css", "kernel-page.js",
+    for name in ("index.html", "kernels.html", "kernel-page.css", "kernel-page.js",
                  "motivation.html", "procedure.html", "info-page.css",
                  "explore.html", "styles.css", "app.js",
                  "analysis.html", "analysis.css", "analysis.js"):

@@ -11,11 +11,11 @@
   <div class="shell">
     <header class="masthead">
       <div class="brand"><span class="brand-mark">◈</span><span>Kernel Atlas</span><small>3DGS experiment explorer</small></div>
-      <nav aria-label="Pages"><a class="tab" href="motivation.html">Motivation</a><a class="tab" href="index.html">Kernels</a><a class="tab" href="procedure.html">Procedure</a><button class="tab active" data-page="explore">Explore runs</button><button class="tab" data-page="summary">Results</button><a class="tab" href="analysis.html">Analysis</a></nav>
+      <nav aria-label="Pages"><a class="tab" href="index.html">Motivation</a><a class="tab" href="kernels.html">Kernels</a><a class="tab" href="procedure.html">Procedure</a><button class="tab active" data-page="explore">Explore runs</button><button class="tab" data-page="summary">Results</button><a class="tab" href="analysis.html">Analysis</a></nav>
     </header>
     <main>
       <section id="explore-page">
-        <div class="intro"><div><span class="eyebrow">SNAPSHOT LAB</span><h1>Watch the scene take shape.</h1><p>Compare the same camera and training step across three screen-space kernels.</p></div><div class="intro-note"><b>How to read this</b><span>Use validation views to inspect convergence. Test metrics live on the summary page.</span></div></div>
+        <div class="intro"><div><span class="eyebrow">04 / SNAPSHOT LAB</span><h1>Watch the scene take shape.</h1><p>Compare the same camera and training step across three screen-space kernels.</p></div><div class="intro-note"><b>How to read this</b><span>Use validation views to inspect convergence. Test metrics live on the summary page.</span></div></div>
         <div class="controls">
           <label>Scene<select id="scene-select"></select></label>
           <label>Seed<select id="seed-select"></select></label>
@@ -35,7 +35,7 @@
         </div>
         <div class="chart-caveat"><b>Reading the set together</b><p>The count curve has its own scale, and each distribution is normalized within its kernel. A kernel can have more small or opaque splats without producing a better image. Use the matched render above to inspect visible changes, then the paired test metrics on Results to judge final quality.</p></div>
       </section>
-      <section id="summary-page" hidden><div class="intro summary-intro"><div><span class="eyebrow">EXPERIMENT SUMMARY</span><h1>Where the kernels differ.</h1><p>Final held-out test results, paired by scene and seed. Higher PSNR and SSIM, lower LPIPS are better.</p></div></div><div id="summary-content"></div></section>
+      <section id="summary-page" hidden><div class="intro summary-intro"><div><span class="eyebrow">05 / EXPERIMENT SUMMARY</span><h1>Where the kernels differ.</h1><p>Final held-out test results, paired by scene and seed. Higher PSNR and SSIM, lower LPIPS are better.</p></div></div><div id="summary-content"></div></section>
     </main>
     <footer>Kernel Atlas <span>·</span> Fixed capacity, paired seeds, matched cameras</footer>
   </div>
