@@ -126,6 +126,14 @@ class TestFinalMetrics(unittest.TestCase):
             self.assertAlmostEqual(float(polynomial["delta_lpips"]), -0.1)
             self.assertEqual(polynomial["lpips_net"], "vgg")
             self.assertEqual(float(polynomial["delta_peak_train_gpu_memory_mib"]), 50)
+            with (output / "gaussian_seed_baseline.csv").open(newline="") as stream:
+                baseline = next(csv.DictReader(stream))
+            self.assertEqual(baseline["gaussian_seeds"], "1")
+            self.assertEqual(baseline["gaussian_sd_psnr_db"], "")
+
+    def test_sample_sd_uses_seed_means_and_is_undefined_for_one_seed(self):
+        self.assertAlmostEqual(analysis.sample_sd([20.0, 21.0, 22.0]), 1.0)
+        self.assertIsNone(analysis.sample_sd([20.0]))
 
 
 if __name__ == "__main__":

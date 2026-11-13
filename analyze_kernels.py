@@ -40,6 +40,12 @@ def mean_optional(values):
     return statistics.mean(present) if present else None
 
 
+def sample_sd(values):
+    """Across-seed spread; undefined with fewer than two runs."""
+    values = list(values)
+    return statistics.stdev(values) if len(values) >= 2 else None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root", type=Path, default=Path("outputs/kernels"))
@@ -76,6 +82,28 @@ def main():
                 with curve_path.open(newline="") as stream:
                     for row in csv.DictReader(stream):
                         curves[(scene, kernel, seed, int(row["iteration"]))].append(row)
+
+    baseline_rows = []
+    for scene in scenes:
+        gaussian = [results[(scene, "gaussian", seed)] for seed in args.seeds
+                    if (scene, "gaussian", seed) in results]
+        lpips = [run for run in gaussian if run.get("mean_lpips") is not None
+                 and run.get("lpips_net") is not None]
+        lpips_nets = {run["lpips_net"] for run in lpips}
+        if len(lpips_nets) > 1:
+            raise ValueError(f"Mixed Gaussian LPIPS backbones for {scene}: {lpips_nets}")
+        baseline_rows.append(dict(
+            scene=scene, gaussian_seeds=len(gaussian),
+            gaussian_sd_psnr_db=sample_sd(run["mean_psnr_db"] for run in gaussian),
+            gaussian_sd_ssim=sample_sd(run["mean_ssim"] for run in gaussian),
+            lpips_net=next(iter(lpips_nets)) if lpips_nets else "",
+            gaussian_lpips_seeds=len(lpips),
+            gaussian_sd_lpips=sample_sd(run["mean_lpips"] for run in lpips),
+        ))
+    write_csv(args.output_dir / "gaussian_seed_baseline.csv", (
+        "scene", "gaussian_seeds", "gaussian_sd_psnr_db", "gaussian_sd_ssim",
+        "lpips_net", "gaussian_lpips_seeds", "gaussian_sd_lpips",
+    ), baseline_rows)
 
     paired = []
     for (scene, kernel, seed), result in sorted(results.items()):
@@ -154,12 +182,15 @@ def main():
             scene=scene, kernel=kernel, max_radius_fraction=radius_fraction,
             seeds=len(rows),
             mean_delta_psnr_db=mean, ci95_low_psnr_db=low, ci95_high_psnr_db=high,
+            sd_delta_psnr_db=sample_sd(deltas),
             mean_delta_ssim=statistics.mean(r["delta_ssim"] for r in rows),
+            sd_delta_ssim=sample_sd(r["delta_ssim"] for r in rows),
             lpips_net=next(iter(lpips_nets)) if lpips_nets else "",
             lpips_seeds=len(lpips_rows),
             mean_test_lpips=(statistics.mean(r["test_lpips"] for r in lpips_rows)
                              if lpips_rows else None),
             mean_delta_lpips=lpips_mean,
+            sd_delta_lpips=sample_sd(r["delta_lpips"] for r in lpips_rows),
             ci95_low_lpips=lpips_low, ci95_high_lpips=lpips_high,
             mean_render_ms=statistics.mean(r["render_ms"] for r in rows),
             mean_tile_pairs=statistics.mean(r["tile_pairs"] for r in rows),
@@ -179,8 +210,9 @@ def main():
         ))
     write_csv(args.output_dir / "kernel_summary.csv", (
         "scene", "kernel", "max_radius_fraction", "seeds", "mean_delta_psnr_db", "ci95_low_psnr_db",
-        "ci95_high_psnr_db", "mean_delta_ssim", "lpips_net", "lpips_seeds",
-        "mean_test_lpips", "mean_delta_lpips", "ci95_low_lpips", "ci95_high_lpips",
+        "ci95_high_psnr_db", "sd_delta_psnr_db", "mean_delta_ssim", "sd_delta_ssim",
+        "lpips_net", "lpips_seeds", "mean_test_lpips", "mean_delta_lpips",
+        "sd_delta_lpips", "ci95_low_lpips", "ci95_high_lpips",
         "mean_render_ms",
         "mean_tile_pairs", "mean_training_seconds", "mean_final_splats",
         "memory_seeds", "mean_peak_train_gpu_memory_mib", "mean_peak_test_gpu_memory_mib",

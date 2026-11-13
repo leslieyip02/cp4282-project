@@ -94,6 +94,15 @@ splat/tile records. Elapsed cost is compared only for pairs run on the same
 GPU model. Sampled peak GPU memory uses 250 ms NVML polling and may miss
 shorter transients.
 
+To estimate random-seed variability separately for each scene, we calculate
+the **sample standard deviation** (`n−1` denominator) of the three Gaussian
+final-test scores. We also calculate the sample SD of the three *paired*
+alternative-minus-Gaussian differences per scene and kernel. The latter is
+the relevant spread for judging a kernel effect because the runs share seeds.
+We use two-sided 95% t intervals for the mean paired difference as a descriptive
+uncertainty check; with only three selected seeds, these intervals are wide
+and sensitive to outliers. A Gaussian SD is not itself a significance cutoff.
+
 The real matrix has 81 of 81 expected final-test summaries and no missing-job
 entries. Its generated reports check within-scene settings and splits, and
 the nine saved COLMAP initialization PLYs in each real scene have the same
@@ -155,6 +164,43 @@ PSNR in four scenes (13/27 seeds) and mean LPIPS in two scenes. Its mean scene
 PSNR difference is +0.166 dB, but its median is −0.042 dB. These are
 exploratory results from nine selected scenes and three seeds each, not
 evidence of a universal ranking.
+
+### Random-seed variability by scene
+
+The Gaussian column estimates baseline PSNR variation between training seeds
+for that scene. The other columns show the paired PSNR difference as mean ±
+sample SD across the same three seeds, in dB. Full precision, SSIM, LPIPS,
+and 95% paired intervals are in each matrix's `kernel_analysis/` CSV files.
+
+| Matrix | Scene | Gaussian PSNR SD | Linear ΔPSNR mean ± SD | Quadratic ΔPSNR mean ± SD |
+| --- | --- | ---: | ---: | ---: |
+| Synthetic | Chair | 0.084 | −0.106 ± 0.121 | −0.441 ± 0.212 |
+| Synthetic | Drums | 0.044 | −0.042 ± 0.011 | −0.201 ± 0.056 |
+| Synthetic | Ficus | 0.023 | −0.111 ± 0.014 | −0.082 ± 0.019 |
+| Synthetic | Hotdog | 0.208 | +0.221 ± 0.261 | −0.928 ± 0.488 |
+| Synthetic | Lego | 0.071 | −0.255 ± 0.027 | −0.487 ± 0.080 |
+| Synthetic | Materials | 0.079 | +0.024 ± 0.087 | −0.231 ± 0.088 |
+| Synthetic | Mic | 0.122 | −0.069 ± 0.134 | −0.321 ± 0.136 |
+| Synthetic | Ship | 0.074 | −0.133 ± 0.070 | −0.487 ± 0.048 |
+| Real | Bicycle | 0.053 | −0.070 ± 0.047 | +0.076 ± 0.021 |
+| Real | Bonsai | 1.415 | +0.992 ± 3.172 | +3.123 ± 1.389 |
+| Real | Counter | 0.291 | +0.208 ± 0.216 | +0.350 ± 0.259 |
+| Real | Flowers | 0.035 | −0.086 ± 0.096 | +0.084 ± 0.087 |
+| Real | Garden | 0.114 | −0.116 ± 0.086 | −0.036 ± 0.079 |
+| Real | Kitchen | 0.373 | +0.238 ± 0.173 | +1.098 ± 0.311 |
+| Real | Room | 0.391 | +0.524 ± 0.322 | +0.455 ± 0.523 |
+| Real | Stump | 0.060 | −0.151 ± 0.091 | +0.074 ± 0.086 |
+| Real | Treehill | 0.104 | −0.042 ± 0.127 | −0.018 ± 0.100 |
+
+The descriptive 95% paired PSNR interval excludes zero for quadratic gains
+in **bicycle** (+0.025 to +0.127 dB) and **kitchen** (+0.325 to +1.870 dB)
+in the real matrix. Bonsai's large mean gain has a wide interval
+(−0.328 to +6.575 dB) because its Gaussian outcomes vary strongly by seed.
+The other real-scene intervals include zero. In the synthetic matrix,
+quadratic losses have intervals below zero for drums, ficus, lego, materials,
+and ship; the three remaining scenes have intervals crossing zero. These are
+unadjusted exploratory intervals across multiple scene and kernel comparisons,
+not definitive significance claims.
 
 ![Per-scene paired PSNR differences for both experiment matrices](figures/paired_psnr_by_scene.png)
 

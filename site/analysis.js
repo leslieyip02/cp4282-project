@@ -12,6 +12,31 @@ function scenePsnrDelta(scene, kernel) {
     scene.runs.gaussian[String(seed)].summary.mean_psnr_db));
 }
 
+function sampleSd(values) {
+  if (values.length < 2) return null;
+  const center = average(values);
+  return Math.sqrt(values.reduce((sum, value) => sum + (value - center) ** 2, 0) / (values.length - 1));
+}
+
+function drawVariability(real, synthetic) {
+  const matrix = (title, scenes) => {
+    const rows = Object.entries(scenes).map(([name, scene]) => {
+      const gaussian = scene.seeds.map(seed => scene.runs.gaussian[String(seed)].summary.mean_psnr_db);
+      const delta = kernel => scene.seeds.map(seed =>
+        scene.runs[kernel][String(seed)].summary.mean_psnr_db -
+        scene.runs.gaussian[String(seed)].summary.mean_psnr_db);
+      const paired = kernel => {
+        const values = delta(kernel), sd = sampleSd(values);
+        return `${signedValue(average(values))} ± ${sd == null ? '—' : sd.toFixed(3)}`;
+      };
+      return `<tr><th scope="row">${name}</th><td>${sampleSd(gaussian)?.toFixed(3) ?? '—'}</td><td>${paired('linear')}</td><td>${paired('polynomial')}</td></tr>`;
+    });
+    return `<h3>${title}</h3><div class="cost-table-wrap"><table class="cost-table variability-table"><thead><tr><th>Scene</th><th>Gaussian PSNR SD</th><th>Linear ΔPSNR mean ± SD</th><th>Quadratic ΔPSNR mean ± SD</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  };
+  byId('variability-tables').innerHTML = matrix('Synthetic · 8,000 steps', synthetic) +
+    matrix('Real · 20,000 steps', real);
+}
+
 function signedValue(value, digits = 3, suffix = '') {
   return `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(digits)}${suffix}`;
 }
@@ -75,6 +100,7 @@ async function startAnalysis() {
     const [real, synthetic] = await Promise.all([realResponse.json(), syntheticResponse.json()]);
     if (!Object.keys(real.scenes || {}).length || !Object.keys(synthetic.scenes || {}).length)
       throw new Error('Both real and synthetic summaries are needed for this analysis.');
+    drawVariability(real.scenes, synthetic.scenes);
     for (const kernel of ANALYSIS_KERNELS) {
       drawDeltaPanel(`${kernel}-synthetic`, synthetic.scenes, kernel);
       drawDeltaPanel(`${kernel}-real`, real.scenes, kernel);

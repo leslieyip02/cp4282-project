@@ -53,6 +53,11 @@ def mean(values):
     return statistics.mean(values) if values else None
 
 
+def sample_sd(values):
+    values = list(values)
+    return statistics.stdev(values) if len(values) >= 2 else None
+
+
 def ci95(values):
     values = list(values)
     center = mean(values)
@@ -355,6 +360,24 @@ def report_scene(args):
                     if current[(kernel, seed)]["summary"].get("mean_lpips") is not None else "—")]
                   for seed in args.seeds for kernel in KERNELS]), ""]
 
+    gaussian_runs = [current[("gaussian", seed)]["summary"] for seed in args.seeds]
+    gaussian_lpips = [run["mean_lpips"] for run in gaussian_runs
+                      if run.get("mean_lpips") is not None]
+    lines += ["## Across-seed randomness baseline", "",
+              "Sample standard deviation of the Gaussian final-test mean across seeds "
+              "within this scene. This describes optimization variability under the "
+              "same kernel and setup; it is not a significance threshold. "
+              "The paired-difference spread and intervals below are more relevant "
+              "to a kernel comparison.", "",
+              table(["Gaussian seeds", "PSNR SD (dB)", "SSIM SD", "LPIPS SD"], [[
+                  len(gaussian_runs),
+                  f"{sample_sd(run['mean_psnr_db'] for run in gaussian_runs):.3f}"
+                  if len(gaussian_runs) >= 2 else "—",
+                  f"{sample_sd(run['mean_ssim'] for run in gaussian_runs):.4f}"
+                  if len(gaussian_runs) >= 2 else "—",
+                  f"{sample_sd(gaussian_lpips):.4f}" if len(gaussian_lpips) >= 2 else "—",
+              ]]), ""]
+
     lines += ["## Paired final-test differences from Gaussian", "",
               "Positive PSNR/SSIM and negative LPIPS favor the alternative kernel. "
               "These are seed pairs; test views are not independent replicates.", "",
@@ -365,6 +388,7 @@ def report_scene(args):
               f"Across-seed means and 95% t intervals ({len(args.seeds)} selected seeds; "
               "small samples give wide intervals):", ""]
     aggregate = []
+    spread_rows = []
     for kernel in ("linear", "polynomial"):
         rows = [row for row in paired if row["kernel"] == kernel]
         stats = [ci95(row[f"delta_{metric}"] for row in rows
@@ -374,8 +398,19 @@ def report_scene(args):
             f"[{fmt(low, 4 if metric != 'psnr_db' else 3)}, "
             f"{fmt(high, 4 if metric != 'psnr_db' else 3)}]"
             for metric, (center, low, high) in zip(METRICS, stats)])
+        spreads = []
+        for metric in METRICS:
+            values = [row[f"delta_{metric}"] for row in rows
+                      if row[f"delta_{metric}"] is not None]
+            spread = sample_sd(values)
+            spreads.append(f"{spread:.{3 if metric == 'psnr_db' else 4}f}"
+                           if spread is not None else "—")
+        spread_rows.append([kernel, *spreads])
     lines += [table(["Kernel", "ΔPSNR mean [95% CI]", "ΔSSIM mean [95% CI]",
                      "ΔLPIPS mean [95% CI]"], aggregate), "",
+              "Paired-difference sample SD across seeds:", "",
+              table(["Kernel", "ΔPSNR SD (dB)", "ΔSSIM SD", "ΔLPIPS SD"],
+                    spread_rows), "",
               "![Paired final-test differences](paired_test_deltas.png)", ""]
 
     lines += ["## Test-view consistency", ""]
@@ -485,7 +520,7 @@ def report_scene(args):
     return paired
 
 
-def write_overview(output: Path, scene_rows: dict[str, list[dict]]):
+def write_overview(output: Path, scene_rows: dict[str, list[dict]], baselines: list[dict]):
     rows = []
     for scene, paired in sorted(scene_rows.items()):
         for kernel in ("linear", "polynomial"):
@@ -500,9 +535,13 @@ def write_overview(output: Path, scene_rows: dict[str, list[dict]]):
             rows.append(dict(
                 scene=scene, kernel=kernel, seeds=len(group),
                 mean_delta_psnr_db=mean(row["delta_psnr_db"] for row in group),
+                sd_delta_psnr_db=sample_sd(row["delta_psnr_db"] for row in group),
                 mean_delta_ssim=mean(row["delta_ssim"] for row in group),
+                sd_delta_ssim=sample_sd(row["delta_ssim"] for row in group),
                 mean_delta_lpips=mean(row["delta_lpips"] for row in group
                                       if row["delta_lpips"] is not None),
+                sd_delta_lpips=sample_sd(row["delta_lpips"] for row in group
+                                         if row["delta_lpips"] is not None),
                 psnr_positive_seeds=sum(row["delta_psnr_db"] > 0 for row in group),
                 ssim_positive_seeds=sum(row["delta_ssim"] > 0 for row in group),
                 lpips_better_seeds=sum(row["delta_lpips"] < 0 for row in group
@@ -522,6 +561,7 @@ def write_overview(output: Path, scene_rows: dict[str, list[dict]]):
             ))
     fields = list(rows[0])
     write_csv(output / "overview.csv", fields, rows)
+    write_csv(output / "gaussian_seed_baseline.csv", list(baselines[0]), baselines)
 
     fig, axes = plt.subplots(1, 3, figsize=(13, max(3.5, 0.55 * len(scene_rows) + 1.8)),
                              constrained_layout=True)
@@ -547,6 +587,16 @@ def write_overview(output: Path, scene_rows: dict[str, list[dict]]):
               f"and negative LPIPS favor the alternative. {len(scene_rows)} scenes are exploratory; "
               "test views are not independent scene replicates.", "",
               "![Scene-level test differences](scene_deltas.png)", "",
+              "## Gaussian seed variability by scene", "",
+              "Sample SD of final-test scores across Gaussian seeds. Compare kernel "
+              "effects using the paired-difference SD in overview.csv; an effect "
+              "larger than this Gaussian SD alone is not a significance test.", "",
+              table(["Scene", "Seeds", "PSNR SD (dB)", "SSIM SD", "LPIPS SD"], [
+                  [row["scene"], row["seeds"],
+                   f"{row['sd_psnr_db']:.3f}" if row["sd_psnr_db"] is not None else "—",
+                   f"{row['sd_ssim']:.4f}" if row["sd_ssim"] is not None else "—",
+                   f"{row['sd_lpips']:.4f}" if row["sd_lpips"] is not None else "—"]
+                  for row in baselines]), "",
               table(["Scene", "Kernel", "ΔPSNR dB", "ΔSSIM", "ΔLPIPS",
                      "PSNR wins", "LPIPS wins", "GPU-matched seeds", "Δtrain GPU MiB"], [
                   [row["scene"], row["kernel"], fmt(row["mean_delta_psnr_db"]),
@@ -589,6 +639,7 @@ def main():
         parser.error("No scenes found")
     selected_seeds = args.seeds
     scene_rows = {}
+    baselines = []
     for scene in scenes:
         seed_root = args.input_root / scene / "gaussian"
         if not seed_root.is_dir():
@@ -600,7 +651,15 @@ def main():
         if not args.seeds:
             raise ValueError(f"No seeds found for {scene}")
         scene_rows[scene] = report_scene(args)
-    write_overview(args.output_dir, scene_rows)
+        gaussian = [load_run(args.input_root, scene, "gaussian", seed)["summary"]
+                    for seed in args.seeds]
+        lpips = [run["mean_lpips"] for run in gaussian
+                 if run.get("mean_lpips") is not None]
+        baselines.append(dict(scene=scene, seeds=len(gaussian),
+                              sd_psnr_db=sample_sd(run["mean_psnr_db"] for run in gaussian),
+                              sd_ssim=sample_sd(run["mean_ssim"] for run in gaussian),
+                              lpips_seeds=len(lpips), sd_lpips=sample_sd(lpips)))
+    write_overview(args.output_dir, scene_rows, baselines)
 
 
 if __name__ == "__main__":
