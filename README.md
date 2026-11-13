@@ -1,5 +1,12 @@
 # Linear and quadratic screen-space kernels for 3D Gaussian splatting
 
+## TL;DR
+
+- [Report](docs/report.pdf)
+- [Presentation Site](https://leslieyip02.github.io/cp4282-project/)
+
+## Overview
+
 This project tests whether replacing the Gaussian screen-space weight in a 3DGS
 renderer with a linear radial or quadratic weight changes held-out image quality
 and cost. The quadratic kernel is named `polynomial` in the code and run files.
