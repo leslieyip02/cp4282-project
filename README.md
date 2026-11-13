@@ -118,11 +118,26 @@ cat "$SYNTHETIC_ROOT/kernel_analysis/missing_jobs.csv"
 Both `missing_jobs.csv` files should contain only a header. The scene-level
 figures and `overview.csv` used by the report are under each root's `reports/`;
 `paired_runs.csv` and validation curves are under `kernel_analysis/`. The
+`gaussian_seed_baseline.csv` file gives the sample SD across Gaussian seeds
+for each scene; `kernel_summary.csv` adds the SD of paired kernel differences
+and their descriptive 95% intervals. The `reports/` directory also contains
+the seed-variability tables in its scene reports and overview. The
 [capacity diagnostic](docs/experiments.md#capacity-diagnostic) is separate.
 These commands regenerate summaries from saved runs without retraining. A
 fresh clone does not contain those runs or datasets. Retraining follows
 Sections 1–2, but exact numerical replication also depends on the original
 dataset files and software environment; `requirements.txt` is not a lockfile.
+
+To export report-ready per-scene seed-variability figures for PSNR, SSIM, and
+VGG LPIPS after generating both `kernel_analysis/` directories, run
+`.venv/bin/python scripts/plot_seed_variability.py`. It writes PNG and PDF
+versions to `docs/figures/`. Each figure separates the synthetic and real
+matrices and shows Gaussian run SD alongside the paired-difference SD for
+linear and quadratic kernels.
+
+For paired per-scene SSIM and LPIPS plots matching the PSNR figure, run
+`.venv/bin/python scripts/plot_paired_metrics.py`. It uses each matrix's
+`paired_runs.csv` and writes PNG and PDF figures to `docs/figures/`.
 
 ## 4. Build and view the site
 
